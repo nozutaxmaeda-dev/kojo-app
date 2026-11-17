@@ -163,6 +163,25 @@ button.cta:disabled{background:#9aa9b5;box-shadow:none;cursor:default}
 button.cta.again{background:#b4400f;box-shadow:0 3px 0 #82300b}
 button.cta.again:hover:not(:disabled){background:#97350c}
 .confirm-box #saveMsg{display:block;margin-top:8px}
+
+/* カメラで続けて撮影 */
+.pickrow button.pk{flex:1 1 240px;display:block;text-align:center;border:2px solid var(--rule);background:#fff;padding:12px 10px;font:inherit;font-weight:700;color:var(--ink);cursor:pointer}
+.pickrow button.pk:hover{background:var(--marker)}
+#camOverlay{position:fixed;inset:0;background:#000;z-index:200;display:none;flex-direction:column}
+#camOverlay.on{display:flex}
+#camVideo{flex:1;min-height:0;width:100%;object-fit:contain;background:#000}
+.cam-top{position:absolute;top:0;left:0;right:0;display:flex;justify-content:space-between;align-items:center;padding:12px 14px;background:linear-gradient(#000a,#0000);color:#fff;font-size:15px;font-weight:700}
+.cam-top button{font:inherit;font-weight:700;background:#fff;color:#1b2b3a;border:0;border-radius:20px;padding:8px 20px;cursor:pointer}
+.cam-strip{display:flex;gap:6px;overflow-x:auto;padding:8px 10px;min-height:68px;background:#000c}
+.cam-strip img{height:52px;width:auto;border:2px solid #fff;border-radius:4px;flex:none}
+.cam-bottom{display:flex;justify-content:space-between;align-items:center;padding:12px 24px calc(18px + env(safe-area-inset-bottom,0px));background:#000}
+#camShot{width:74px;height:74px;border-radius:50%;border:5px solid #fff;background:#e5484d;box-shadow:0 0 0 3px #000 inset;cursor:pointer}
+#camShot:active{transform:scale(.94)}
+#camUndo{font:inherit;font-size:13px;color:#fff;background:#333;border:0;border-radius:8px;padding:10px 12px;min-width:96px;cursor:pointer}
+#camUndo:disabled{opacity:.35;cursor:default}
+.cam-spacer{min-width:96px}
+#camFlash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none;transition:opacity .12s}
+#camFlash.on{opacity:.75}
 </style>
 </head>
 <body>
@@ -186,15 +205,28 @@ button.cta.again:hover:not(:disabled){background:#97350c}
   </div>
 </template>
 
+<div id="camOverlay" role="dialog" aria-label="カメラ">
+  <video id="camVideo" playsinline autoplay muted></video>
+  <div id="camFlash"></div>
+  <div class="cam-top"><span id="camCount">0枚 撮影済み</span><button type="button" id="camClose">完了</button></div>
+  <div class="cam-strip" id="camStrip"></div>
+  <div class="cam-bottom"><button type="button" id="camUndo" disabled>直前の1枚を削除</button><button type="button" id="camShot" aria-label="撮影"></button><span class="cam-spacer"></span></div>
+</div>
+
 <div id="busyOverlay"><div class="bx"><div class="spin"></div><div class="bar"><i id="barFill"></i></div><div id="barText">読み込み中…</div></div></div>
 
 <main id="appWrap" style="display:none">
   <label id="drop" for="picker" role="button" tabindex="0">
     <strong>タップして写真を選択（まとめて何枚でもOK）</strong>
-    <span>写真ライブラリで、写真にチェックを付けて、まとめて選べます。撮影もできます。選んだあと「計算を開始」を押してください。</span>
+    <span>写真ライブラリで、写真にチェックを付けて、まとめて選べます。選んだあと「計算を開始」を押してください。</span>
   </label>
   <input id="picker" type="file" accept="image/*" multiple hidden>
-  <div class="pickrow"><label class="pk" for="filePicker">PDF・XMLファイルを選ぶ（まとめて選べます）</label></div>
+  <div class="pickrow">
+    <button type="button" class="pk" id="camBtn">📷 カメラで撮影（続けて何枚でも）</button>
+    <label class="pk" for="filePicker">PDF・XMLファイルを選ぶ（まとめて選べます）</label>
+    <button type="button" class="pk" id="camAgain" style="display:none">📷 続けて撮影する</button>
+  </div>
+  <input id="camInput" type="file" accept="image/*" capture="environment" hidden>
   <input id="filePicker" type="file" accept="application/pdf,.pdf,text/xml,application/xml,.xml" multiple hidden>
   <ul id="files"></ul>
   <div class="actions" style="margin-top:10px;align-items:flex-end">
@@ -356,6 +388,77 @@ picker.addEventListener('change', () => { addFiles([...picker.files], () => { pi
 const filePicker = $('#filePicker');
 filePicker.addEventListener('change', () => { addFiles([...filePicker.files], () => { filePicker.value = ''; }); });
 
+/* ---------- カメラで続けて撮影 ---------- */
+let camStream_ = null, camShots_ = [];
+function camStamp_() { const d = new Date(), p = n => String(n).padStart(2, '0'); return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '_' + (camShots_.length + 1); }
+function renderCamStrip_() {
+  $('#camCount').textContent = camShots_.length + '枚 撮影済み';
+  const st = $('#camStrip');
+  st.innerHTML = camShots_.map(s => '<img src="' + s.thumb + '" alt="">').join('');
+  st.scrollLeft = st.scrollWidth;
+  $('#camUndo').disabled = !camShots_.length;
+}
+function stopCamera_() {
+  if (camStream_) { camStream_.getTracks().forEach(t => t.stop()); camStream_ = null; }
+  $('#camVideo').srcObject = null;
+}
+function closeCamera_() {
+  stopCamera_();
+  $('#camOverlay').classList.remove('on');
+  document.body.style.overflow = '';
+  if (camShots_.length) { const f = $('#files'); if (f && f.scrollIntoView) f.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+}
+/** アプリ内のカメラが使えないとき（許可されない・非対応など）は、スマホ標準のカメラを使う */
+function nativeCamera_() { $('#camInput').click(); }
+async function openCamera_() {
+  if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) { nativeCamera_(); return; }
+  try {
+    camStream_ = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 4096 }, height: { ideal: 4096 } }, audio: false });
+  } catch (e) { nativeCamera_(); return; }
+  try { camStream_.getVideoTracks()[0].applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(() => {}); } catch (e) {}
+  const v = $('#camVideo');
+  v.srcObject = camStream_;
+  try { await v.play(); } catch (e) {}
+  camShots_ = [];
+  renderCamStrip_();
+  $('#camOverlay').classList.add('on');
+  document.body.style.overflow = 'hidden';
+}
+function shoot_() {
+  const v = $('#camVideo');
+  if (!v.videoWidth) return;
+  const s = Math.min(1, 2400 / Math.max(v.videoWidth, v.videoHeight));
+  const c = document.createElement('canvas');
+  c.width = Math.round(v.videoWidth * s); c.height = Math.round(v.videoHeight * s);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  const t = document.createElement('canvas'), ts = Math.min(1, 120 / Math.max(c.width, c.height));
+  t.width = Math.max(1, Math.round(c.width * ts)); t.height = Math.max(1, Math.round(c.height * ts));
+  t.getContext('2d').drawImage(c, 0, 0, t.width, t.height);
+  const thumb = t.toDataURL('image/jpeg', 0.7);
+  const fl = $('#camFlash'); fl.classList.add('on'); setTimeout(() => fl.classList.remove('on'), 120);
+  try { if (navigator.vibrate) navigator.vibrate(25); } catch (e) {}
+  const name = 'camera_' + camStamp_() + '.jpg';
+  c.toBlob(b => {
+    if (!b) return;
+    const it = addFiles([new File([b], name, { type: 'image/jpeg' })])[0];
+    camShots_.push({ it: it, thumb: thumb });
+    renderCamStrip_();
+  }, 'image/jpeg', 0.88);
+}
+function undoShot_() {
+  const s = camShots_.pop();
+  if (!s) return;
+  state.files = state.files.filter(x => x !== s.it);
+  renderFiles(); markDirty_(); renderCamStrip_();
+}
+$('#camBtn').addEventListener('click', openCamera_);
+$('#camShot').addEventListener('click', shoot_);
+$('#camUndo').addEventListener('click', undoShot_);
+$('#camClose').addEventListener('click', closeCamera_);
+const camInput = $('#camInput');
+camInput.addEventListener('change', () => { addFiles([...camInput.files], () => { camInput.value = ''; }); $('#camAgain').style.display = 'block'; });
+$('#camAgain').addEventListener('click', nativeCamera_);
+
 function readB64(file) {
   return new Promise((ok, ng) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = ng; r.readAsDataURL(file); });
 }
@@ -436,6 +539,7 @@ function addFiles(list, done) {
     });
   });
   prepChain_ = prepChain_.then(() => { if (done) done(); });
+  return added;
 }
 function nameKeyClient_(s) { return String(s || '').replace(/[\s　]/g, ''); }
 let busyTimer_ = null, busyCur_ = 0;
