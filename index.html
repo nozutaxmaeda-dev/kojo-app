@@ -146,6 +146,23 @@ button:focus-visible{outline:3px solid var(--marker-edge);outline-offset:2px}
   .num input{padding-left:6px;padding-right:22px}
   .doc{padding:10px 10px 12px}
 }
+
+/* 取り込みボタン（ファイル） */
+.pickrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.pickrow label.pk{flex:1 1 240px;display:block;text-align:center;border:2px solid var(--rule);background:#fff;padding:12px 10px;font-weight:700;cursor:pointer}
+.pickrow label.pk:hover{background:var(--marker)}
+/* 確認チェックと「計算する」ボタン */
+.confirm-box{margin-top:18px;padding:14px;background:#fff;border:2px solid var(--rule)}
+.confirm-box .chk{align-items:flex-start;font-size:14px;font-weight:700;line-height:1.5}
+.confirm-box .chk input{width:22px;height:22px;margin-top:1px;flex:none}
+.confirm-hint{font-size:12px;color:var(--ink-soft);margin:8px 0 12px;line-height:1.6}
+button.cta{display:block;width:100%;font:inherit;font-size:19px;font-weight:700;letter-spacing:.08em;background:#1f6f4a;color:#fff;border:0;border-radius:8px;padding:16px 20px;cursor:pointer;box-shadow:0 3px 0 #14502f}
+button.cta:hover:not(:disabled){background:#185c3c}
+button.cta:active:not(:disabled){transform:translateY(2px);box-shadow:0 1px 0 #14502f}
+button.cta:disabled{background:#9aa9b5;box-shadow:none;cursor:default}
+button.cta.again{background:#b4400f;box-shadow:0 3px 0 #82300b}
+button.cta.again:hover:not(:disabled){background:#97350c}
+.confirm-box #saveMsg{display:block;margin-top:8px}
 </style>
 </head>
 <body>
@@ -173,10 +190,12 @@ button:focus-visible{outline:3px solid var(--marker-edge);outline-offset:2px}
 
 <main id="appWrap" style="display:none">
   <label id="drop" for="picker" role="button" tabindex="0">
-    <strong>タップして控除証明書を選択</strong>
-    <span>写真の撮影、写真ライブラリ、ファイルから選べます（JPG・PNG・PDF、複数可）。選んだあと「計算を開始」を押してください。</span>
+    <strong>タップして写真を選択（まとめて何枚でもOK）</strong>
+    <span>写真ライブラリで、写真にチェックを付けて、まとめて選べます。撮影もできます。選んだあと「計算を開始」を押してください。</span>
   </label>
-  <input id="picker" type="file" accept="image/*,application/pdf" multiple hidden>
+  <input id="picker" type="file" accept="image/*" multiple hidden>
+  <div class="pickrow"><label class="pk" for="filePicker">PDF・XMLファイルを選ぶ（まとめて選べます）</label></div>
+  <input id="filePicker" type="file" accept="application/pdf,.pdf,text/xml,application/xml,.xml" multiple hidden>
   <ul id="files"></ul>
   <div class="actions" style="margin-top:10px;align-items:flex-end">
     <label class="f" style="flex:none;width:320px;white-space:nowrap"><span>申告者名（姓名スペース無し　例：山田太郎）</span><input class="t" type="text" id="filerName"></label>
@@ -190,9 +209,10 @@ button:focus-visible{outline:3px solid var(--marker-edge);outline-offset:2px}
   <div id="docsWrap" style="display:none">
     <h2>① 読み取り結果（違っていたら直してください）</h2>
     <div id="docs"></div>
-    <div class="actions">
-      <span id="confirmText"></span>
-      <button class="primary" id="saveBtn" disabled>確定</button>
+    <div class="confirm-box">
+      <label class="chk" id="verifyWrap"><input type="checkbox" id="verifyChk"><span>実際の証明書と見比べて、氏名・金額が合っていることを確認しました。</span></label>
+      <div class="confirm-hint" id="confirmText"></div>
+      <button class="cta" id="saveBtn" disabled>計算する</button>
       <span id="saveMsg"></span>
     </div>
   </div>
@@ -333,6 +353,8 @@ const drop = $('#drop'), picker = $('#picker');
 drop.addEventListener('drop', e => addFiles([...e.dataTransfer.files]));
 drop.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); picker.click(); } });
 picker.addEventListener('change', () => { addFiles([...picker.files]); picker.value = ''; });
+const filePicker = $('#filePicker');
+filePicker.addEventListener('change', () => { addFiles([...filePicker.files]); filePicker.value = ''; });
 
 function readB64(file) {
   return new Promise((ok, ng) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(',')[1]); r.onerror = ng; r.readAsDataURL(file); });
@@ -352,7 +374,23 @@ function resizeImage(file) {
     img.src = url;
   });
 }
+/** XMLファイルを文字として読む（宣言された文字コードに合わせる） */
+function decodeXml_(buf) {
+  let label = 'utf-8';
+  try {
+    const head = new TextDecoder('ascii').decode(buf.slice(0, 200));
+    const m = head.match(/encoding\s*=\s*["']([^"']+)["']/i);
+    if (m) label = m[1];
+  } catch (e) {}
+  let t;
+  try { t = new TextDecoder(label).decode(buf); } catch (e) { t = new TextDecoder('utf-8').decode(buf); }
+  return t.slice(0, 200000);
+}
 async function toPayload(file) {
+  if (/\.xml$/i.test(file.name) || /xml/i.test(file.type || '')) {
+    const buf = await file.arrayBuffer();
+    return { fileName: file.name, mimeType: 'text/xml', base64: await readB64(file), text: decodeXml_(buf) };
+  }
   if (file.type.startsWith('image/')) {
     return { fileName: file.name.replace(/\.[^.]+$/, '') + '.jpg', mimeType: 'image/jpeg', base64: await resizeImage(file) };
   }
@@ -361,7 +399,7 @@ async function toPayload(file) {
 
 function addFiles(list) {
   list.forEach(f => state.files.push({ id: state.nextId++, name: f.name, file: f, payload: null, status: '待機中', cls: 'wait', thumb: (f.type && f.type.startsWith('image/')) ? URL.createObjectURL(f) : null }));
-  renderFiles();
+  renderFiles(); markDirty_();
 }
 function nameKeyClient_(s) { return String(s || '').replace(/[\s　]/g, ''); }
 let busyTimer_ = null, busyCur_ = 0;
@@ -392,6 +430,22 @@ function scrollToSection_(sel) {
   if (!el || el.style.display === 'none') return;
   setTimeout(() => { try { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (e) { el.scrollIntoView(); } }, 400);
 }
+/* ---------- 「計算する／再計算する」ボタンの状態 ---------- */
+state.calcDone = false; state.dirty = false;
+function setSaveLabel_() {
+  const b = $('#saveBtn');
+  b.textContent = state.dirty ? '再計算する' : '計算する';
+  b.classList.toggle('again', !!state.dirty);
+  renderConfirmText();
+}
+/** 計算したあとに、写真の追加・内容の修正・除外などがあったら「再計算する」にして、確認をやり直してもらう */
+function markDirty_() {
+  if (!state.calcDone) return;
+  state.dirty = true;
+  const c = $('#verifyChk'); if (c) c.checked = false;
+  setSaveLabel_();
+  updateStart();
+}
 async function startAnalysis() {
   const pending = state.files.filter(f => f.cls === 'wait');
   const filerName = $('#filerName').value.trim();
@@ -414,7 +468,7 @@ async function startAnalysis() {
     } catch (e) { item.status = BUSY_MSG; item.cls = 'err'; }
     item.file = null; renderFiles(); renderDocs(); busyDone_(pending.indexOf(item) + 1, pending.length);
   }
-  state.busy = false; updateStart(); busyHide_();
+  state.busy = false; updateStart(); busyHide_(); markDirty_();
   if (state.docs.length) scrollToSection_('#docsWrap');
 }
 function updateStart() {
@@ -423,12 +477,12 @@ function updateStart() {
   b.disabled = state.busy || !n || !nameOk;
   b.textContent = state.busy ? '読み込み中…' : (n ? '計算を開始（' + n + '件）' : '計算を開始');
   // 解析（OCR）が終わるまでは確定できないようにする
-  $('#saveBtn').disabled = state.busy || !state.docs.length;
+  $('#saveBtn').disabled = state.busy || !state.docs.length || !($('#verifyChk') && $('#verifyChk').checked);
 }
-$('#filerName').addEventListener('input', updateStart);
+$('#filerName').addEventListener('input', () => { updateStart(); markDirty_(); });
 function renderFiles() {
   $('#files').innerHTML = state.files.map(f =>
-    `<li>${f.thumb ? `<img class="th" src="${f.thumb}" alt="" title="${esc(f.name)}" onerror="this.style.visibility='hidden'">` : '<span class="th pdf" title="' + esc(f.name) + '">PDF</span>'}<span class="dot ${f.cls}"></span><small>${esc(f.status)}</small>${f.cls === 'wait' ? `<button class="x" data-rmfile="${f.id}">取り消し</button>` : ''}</li>`).join('');
+    `<li>${f.thumb ? `<img class="th" src="${f.thumb}" alt="" title="${esc(f.name)}" onerror="this.style.visibility='hidden'">` : '<span class="th pdf" title="' + esc(f.name) + '">' + (/\.xml$/i.test(f.name) ? 'XML' : 'PDF') + '</span>'}<span class="dot ${f.cls}"></span><small>${esc(f.status)}</small>${f.cls === 'wait' ? `<button class="x" data-rmfile="${f.id}">取り消し</button>` : ''}</li>`).join('');
   updateStart();
 }
 $('#startBtn').addEventListener('click', startAnalysis);
@@ -470,37 +524,39 @@ function findDuplicateIds_() {
   });
   return dup;
 }
+/* 国税庁の年調ソフトの入力項目に合わせて、必要な項目だけを表示する */
+const LIFE_CATS = [['general', '一般の生命保険料'], ['care', '介護医療保険料'], ['pension', '個人年金保険料']];
+function usedAmt_(o) { return o ? (o.declared != null ? o.declared : o.certified) : null; }
+/** 金額の入力欄（表示は1つ。編集した値は also にも入れる） */
+function amtField(d, label, value, path, also, span) {
+  return `<label class="f s${span || 6}"><span>${label}</span><div class="num"><input type="text" inputmode="numeric" autocomplete="off" data-num="1" value="${esc(yen(value))}" data-doc="${d._id}" data-path="${path}"${also ? ` data-also="${also}"` : ''}><em>円</em></div></label>`;
+}
 function renderDocs() {
   $('#docsWrap').style.display = state.docs.length ? 'block' : 'none';
   const dupIds = findDuplicateIds_();
   $('#docs').innerHTML = state.docs.map(d => {
     let body;
     if (d.docType === 'life') {
-      body = `<div class="sec"><div class="sl">契約内容</div>
-        <div class="row">${fld(d, 'holderName', '契約者（申告者）', 3)}${fld(d, 'insurer', '保険会社', 5)}${fld(d, 'policyNo', '証券番号', 4)}</div>
-        <div class="row">${fld(d, 'productName', '保険の種類', 6)}${fld(d, 'period', '保険期間', 3)}${sel(d, 'system', '新・旧', 3, NS)}</div>
-        <div class="row">${fld(d, 'beneficiaryName', '保険金等受取人', 4)}</div></div>
-        <div class="sec"><div class="sl">保険料（証明額＝1月〜証明日、年間申告額＝「ご参考」欄）</div>
-          ${amtRow(d, 'general', '一般')}${amtRow(d, 'care', '介護医療')}${amtRow(d, 'pension', '個人年金')}
-          <div class="row" style="margin-top:8px">${sel(d, 'paymentMethod', '払込方法', 3, PAY)}${fld(d, 'premiumPerPayment', '1回分保険料（月払時）', 5, 1)}${fld(d, 'certifiedMonths', '証明額の集計月数', 4)}</div></div>`;
+      const cats = LIFE_CATS.filter(c => usedAmt_(d[c[0]]) > 0);
+      const rows = cats.length ? cats : [LIFE_CATS[0]];
+      const hasNonCare = rows.some(c => c[0] !== 'care');
+      body = `<div class="row">${fld(d, 'insurer', '保険会社名', 6)}${fld(d, 'productName', '保険等の種類', 6)}</div>
+        <div class="row">${fld(d, 'period', '保険期間', 3)}${fld(d, 'holderName', '契約者氏名', 5)}${fld(d, 'beneficiaryName', '保険金等の受取人氏名', 4)}</div>
+        ${hasNonCare ? `<div class="row">${sel(d, 'system', '新・旧の区分', 3, NS)}</div>` : ''}
+        ${rows.map(c => `<div class="row">${amtField(d, c[1] + '（支払った保険料）', usedAmt_(d[c[0]]), c[0] + '.declared', c[0] + '.certified', 6)}</div>`).join('')}`;
     } else if (d.docType === 'earthquake') {
-      body = `<div class="sec"><div class="sl">契約内容</div>
-        <div class="row">${fld(d, 'holderName', '契約者（申告者）', 3)}${fld(d, 'insurer', '保険会社', 5)}${fld(d, 'policyNo', '証券番号', 4)}</div>
-        <div class="row">${fld(d, 'productName', '保険の種類', 3)}${fld(d, 'quakeTarget', '保険の対象', 3)}${fld(d, 'period', '保険期間', 6)}</div></div>
-        <div class="sec"><div class="sl">保険料</div>
-        <div class="row">${sel(d, 'quakeCategory', '区分', 3, [['地震', '地震保険料'], ['旧長期', '旧長期損害保険料']])}${fld(d, 'quakePremium', '控除対象保険料', 3, 1)}</div></div>`;
+      body = `<div class="row">${fld(d, 'insurer', '保険会社名', 6)}${fld(d, 'productName', '保険等の種類（目的）', 3)}${fld(d, 'quakeTarget', '保険の対象', 3)}</div>
+        <div class="row">${fld(d, 'period', '保険期間', 3)}${fld(d, 'holderName', '契約者氏名', 5)}${sel(d, 'quakeCategory', '保険の区分', 4, [['地震', '地震保険料'], ['旧長期', '旧長期損害保険料']])}</div>
+        <div class="row">${fld(d, 'quakePremium', '支払った保険料（上記区分に係る金額）', 6, 1)}</div>`;
     } else if (d.docType === 'sme') {
-      body = `<div class="sec"><div class="sl">契約内容</div>
-        <div class="row">${fld(d, 'holderName', '氏名（申告者）', 4)}${fld(d, 'insurer', '発行元', 4)}${sel(d, 'smeKind', '掛金の種類', 4, [['個人型', 'iDeCo（個人型年金）'], ['企業型', '企業型年金'], ['中小機構共済', '小規模企業共済'], ['心身障害者', '心身障害者扶養共済']])}</div></div>
-        <div class="sec"><div class="sl">掛金</div>
-        <div class="row">${fld(d, 'smePaidToSep', '9月までの払込額', 4, 1)}${fld(d, 'smeScheduled', '10〜12月の予定額', 4, 1)}${fld(d, 'smeTotal', '合計', 4, 1)}</div></div>`;
+      const smeAmt = d.smeTotal != null ? d.smeTotal : ((d.smePaidToSep || 0) + (d.smeScheduled || 0));
+      body = `<div class="row">${sel(d, 'smeKind', '掛金の種類', 6, [['個人型', 'iDeCo（個人型年金）'], ['企業型', '企業型年金'], ['中小機構共済', '小規模企業共済'], ['心身障害者', '心身障害者扶養共済']])}${amtField(d, '本年中に支払った掛金', smeAmt || null, 'smeTotal', null, 6)}</div>`;
     } else if (d.docType === 'social') {
-      body = `<div class="sec"><div class="sl">内容</div>
-        <div class="row">${fld(d, 'holderName', '氏名（申告者）', 4)}${fld(d, 'socialKind', '社会保険の種類', 4)}${fld(d, 'socialPayee', '支払先', 4)}</div>
-        <div class="row">${fld(d, 'socialAmount', '年間支払額', 4, 1)}</div></div>`;
+      body = `<div class="row">${fld(d, 'socialKind', '社会保険の種類', 4)}${fld(d, 'socialPayee', '保険料支払先名', 4)}${fld(d, 'socialAmount', '支払った保険料の金額', 4, 1)}</div>`;
     } else {
-      body = `<div class="sec"><div class="row">${sel(d, 'docType', '証明書の種類を選んでください', 6, [['unknown', '（未選択）'], ['life', '生命保険料控除証明書'], ['earthquake', '地震保険料控除証明書'], ['sme', '小規模企業共済等掛金払込証明書'], ['social', '社会保険料控除証明書']])}</div></div>`;
+      body = `<div class="row">${sel(d, 'docType', '証明書の種類を選んでください', 6, [['unknown', '（未選択）'], ['life', '生命保険料控除証明書'], ['earthquake', '地震保険料控除証明書'], ['sme', '小規模企業共済等掛金払込証明書'], ['social', '社会保険料控除証明書']])}</div>`;
     }
+    body = '<div class="sec">' + body + '</div>';
     let notes = [];
     if (d.docType === 'life' && d.paymentMethod !== '年') {
       const CAT_LABEL = { general: '一般', care: '介護医療', pension: '個人年金' };
@@ -563,11 +619,13 @@ document.addEventListener('input', e => {
     try { el.setSelectionRange(p, p); } catch (err) {}
   }
   setPath(d, el.dataset.path, v);
+  if (el.dataset.also) setPath(d, el.dataset.also, v);
+  markDirty_();
   if (el.dataset.path === 'docType') { renderDocs(); }
 });
 document.addEventListener('click', e => {
   const rm = e.target.closest && e.target.closest('[data-rm]');
-  if (rm) { state.docs = state.docs.filter(d => d._id != rm.dataset.rm); renderDocs(); }
+  if (rm) { state.docs = state.docs.filter(d => d._id != rm.dataset.rm); renderDocs(); markDirty_(); }
   const rf = e.target.closest && e.target.closest('[data-rmfile]');
   if (rf) { state.files = state.files.filter(f => f.id != rf.dataset.rmfile); renderFiles(); }
 });
@@ -575,11 +633,13 @@ function renderConfirmText() {
   const t = $('#confirmText');
   if (!t) return;
   const dep = state.under23Flag ? 'あり' : 'なし';
-  t.innerHTML = '年齢23歳未満の扶養親族' + dep + '、入力に間違いない場合は確定ボタンを押してください' +
-    '<br>※②の申告書への記入内容が表示された後に読み取り結果を修正した場合は、再度確定ボタンを押してください';
+  t.innerHTML = '年齢23歳未満の扶養親族：' + dep + '<br>チェックを入れると、ボタンが押せます。' +
+    (state.calcDone ? '<br>計算したあとに修正や追加をしたときは、もう一度確認して「再計算する」を押してください。' : '');
 }
+$('#verifyChk').addEventListener('change', updateStart);
 $('#under23Chk').addEventListener('change', () => {
   state.under23Flag = $('#under23Chk').checked;
+  markDirty_();
   renderConfirmText();
 });
 renderConfirmText();
@@ -682,10 +742,11 @@ $('#saveBtn').addEventListener('click', async () => {
     busySet_(0.95, '計算結果を表示しています…');
     await recalc(); // 保存が完了してから②の計算結果を表示する
     scrollToSection_('#resultsWrap');
+    state.calcDone = true; state.dirty = false; setSaveLabel_();
     m.textContent = '';
   } catch (e) { m.textContent = '保存エラー：' + e.message; }
   window.removeEventListener('beforeunload', blockUnload_);
-  b.disabled = false; busyHide_();
+  updateStart(); busyHide_();
 });
 </script>
 </body>
