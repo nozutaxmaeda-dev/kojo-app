@@ -160,9 +160,9 @@ button:focus-visible{outline:3px solid var(--marker-edge);outline-offset:2px}
   <p style="color:var(--ink-soft);font-size:13px">読み込み中…</p>
 </div>
 <template id="loginFormTpl">
-  <h2 style="margin-top:0">利用者名でログイン</h2>
-  <p style="color:var(--ink-soft);font-size:13px">配布された利用者名を入力してください。</p>
-  <label class="f"><span>利用者名</span><input class="t" type="text" id="loginInput"></label>
+  <h2 style="margin-top:0">ログイン</h2>
+  <p style="color:var(--ink-soft);font-size:13px">事務所から配布されたパスワードを入力してください。</p>
+  <label class="f"><span>パスワード</span><input class="t" type="password" id="loginInput" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false"></label>
   <div class="actions" style="margin-top:10px">
     <button class="primary" id="loginBtn">ログイン</button>
     <span id="loginMsg" style="font-size:13px;color:var(--err)"></span>
@@ -253,14 +253,16 @@ function showApp() {
     }
   }).catch(() => {});
 }
-async function tryLogin(name) {
+async function tryLogin(code) {
+  code = String(code || '').trim();
   const m = $('#loginMsg');
   if (m) m.textContent = '';
+  if (!code) { if (m) m.textContent = 'パスワードを入力してください'; return; }
   try {
-    const r = await run('login', name);
+    const r = await run('login', code);
     state.user = r.name;
     TOKEN = r.token;
-    try { sessionStorage.setItem(LOGIN_KEY, r.name); } catch (e) {}
+    try { sessionStorage.setItem(LOGIN_KEY, code); } catch (e) {}
     showApp();
   } catch (e) {
     try { sessionStorage.removeItem(LOGIN_KEY); } catch (err) {}
@@ -269,7 +271,7 @@ async function tryLogin(name) {
     if (m2) m2.textContent = e.message;
   }
 }
-/** 手入力ログインフォームを表示し、ボタンにイベントを結び直す */
+/** パスワード入力フォームを表示し、ボタンにイベントを結び直す */
 const LOGIN_FORM_HTML_ = $('#loginFormTpl').innerHTML;
 function showLoginForm_() {
   $('#loginWrap').innerHTML = LOGIN_FORM_HTML_;
@@ -291,15 +293,15 @@ function getUrlLocation_() {
   return Promise.resolve({ hash: code });
 }
 /** 「○○でログインします。よろしいですか？」の確認画面を出す */
-function showCodeConfirm_(name) {
+function showCodeConfirm_(name, code) {
   $('#loginWrap').innerHTML = `
     <h2 style="margin-top:0">ログイン確認</h2>
     <p style="font-size:15px">「<b>${esc(name)}</b>」でログインします。よろしいですか？</p>
     <div class="actions" style="margin-top:10px">
       <button class="primary" id="codeYesBtn">はい、ログインする</button>
-      <button id="codeNoBtn" style="border:0;background:none;color:var(--ink-soft);cursor:pointer;text-decoration:underline;font:inherit;font-size:13px">名前を入力してログイン</button>
+      <button id="codeNoBtn" style="border:0;background:none;color:var(--ink-soft);cursor:pointer;text-decoration:underline;font:inherit;font-size:13px">パスワードを入力してログイン</button>
     </div>`;
-  $('#codeYesBtn').addEventListener('click', () => tryLogin(name));
+  $('#codeYesBtn').addEventListener('click', () => tryLogin(code));
   $('#codeNoBtn').addEventListener('click', () => { showLoginForm_(); });
 }
 (async function () {
@@ -317,7 +319,7 @@ function showCodeConfirm_(name) {
   if (code) {
     try {
       const r = await run('loginByCode', code);
-      showCodeConfirm_(r.name);
+      showCodeConfirm_(r.name, code);
       return;
     } catch (e) { /* 符号が無効な場合は通常のログイン画面を出す */ }
   }
