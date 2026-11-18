@@ -49,6 +49,18 @@ h2{font-size:16px;margin:28px 0 10px}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--ink-soft);flex:none}
 .dot.wait{background:#fff;border:2px solid var(--ink-soft)} .dot.busy{background:var(--marker-edge)} .dot.ok{background:var(--ok)} .dot.err{background:var(--err)}
 #files small{color:var(--ink-soft)}
+.no{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 5px;border-radius:11px;background:#1b2b3a;color:#fff;font-size:13px;font-weight:700;line-height:1}
+#files li .no{position:absolute;top:4px;left:4px;z-index:1;pointer-events:none}
+#files .th[data-view]{cursor:zoom-in}
+.doc-head .no{margin-right:-4px}
+.doc button.src{margin-left:auto;border:1px solid var(--rule);background:#f7fafb;color:var(--ink);border-radius:6px;padding:4px 10px;font:inherit;font-size:13px;cursor:pointer;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#viewer{position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.92);display:flex;flex-direction:column}
+#viewer .vbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;color:#fff;flex:none;flex-wrap:wrap}
+#viewer .vbar b{font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 120px}
+#viewer .vbar button{border:1px solid #889;background:#2a3a48;color:#fff;border-radius:6px;padding:6px 12px;font:inherit;font-size:15px;margin-left:6px;cursor:pointer}
+#viewer .vbody{flex:1;overflow:auto;display:flex;min-height:0;-webkit-overflow-scrolling:touch}
+#viewer .vbody img{margin:auto;display:block;max-width:100%;max-height:100%}
+#viewer .vbody img.z{max-width:none;max-height:none;width:260%;margin:0}
 #files button.delx{position:absolute;top:4px;right:4px;width:28px;height:28px;border-radius:50%;border:0;background:rgba(0,0,0,.65);color:#fff;font-size:18px;line-height:28px;padding:0;cursor:pointer}
 #files a{color:var(--ink)}
 #files button.x{border:0;background:none;color:var(--ink-soft);cursor:pointer;font:inherit;font-size:12px;text-decoration:underline}
@@ -518,9 +530,68 @@ function updateStart() {
   $('#saveBtn').disabled = state.busy || !state.docs.length || !($('#verifyChk') && $('#verifyChk').checked);
 }
 $('#filerName').addEventListener('input', () => { updateStart(); markDirty_(); });
+/* ===== 元の写真の確認（番号つき） ===== */
+const fileNo_ = id => state.files.findIndex(f => f.id == id) + 1;
+const canView_ = f => !!(f && f.payload && /^(image\/|application\/pdf)/.test(f.payload.mimeType));
+const VW = { id: null, rot: 0, zoom: false };
+function closeViewer_() { const el = document.getElementById('viewer'); if (el) el.style.display = 'none'; VW.id = null; }
+function viewerEl_() {
+  let el = document.getElementById('viewer');
+  if (el) return el;
+  el = document.createElement('div'); el.id = 'viewer'; el.style.display = 'none';
+  el.innerHTML = '<div class="vbar"><b id="vtitle"></b><span><button data-vact="l">⟲</button><button data-vact="r">⟳</button><button data-vact="z" id="vzoom">拡大</button><button data-vact="x">閉じる</button></span></div><div class="vbody" id="vbody"></div>';
+  document.body.appendChild(el);
+  el.addEventListener('click', e => {
+    const b = e.target.closest('[data-vact]');
+    if (b) {
+      const a = b.dataset.vact;
+      if (a === 'x') closeViewer_();
+      else if (a === 'l') { VW.rot = (VW.rot + 270) % 360; drawViewer_(); }
+      else if (a === 'r') { VW.rot = (VW.rot + 90) % 360; drawViewer_(); }
+      else if (a === 'z') { VW.zoom = !VW.zoom; drawViewer_(); }
+      return;
+    }
+    if (e.target.id === 'vbody') closeViewer_();
+  });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && VW.id != null) closeViewer_(); });
+  return el;
+}
+function drawViewer_() {
+  const f = state.files.find(x => x.id == VW.id);
+  if (!f || !f.payload) { closeViewer_(); return; }
+  const src = 'data:' + f.payload.mimeType + ';base64,' + f.payload.base64;
+  const body = document.getElementById('vbody');
+  document.getElementById('vzoom').textContent = VW.zoom ? '縮小' : '拡大';
+  const show = url => { body.innerHTML = '<img src="' + url + '" alt="" class="' + (VW.zoom ? 'z' : '') + '">'; body.scrollTop = 0; body.scrollLeft = 0; };
+  if (!VW.rot) { show(src); return; }
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement('canvas'), sw = VW.rot === 180;
+    c.width = sw ? img.naturalWidth : img.naturalHeight; c.height = sw ? img.naturalHeight : img.naturalWidth;
+    const g = c.getContext('2d'); g.translate(c.width / 2, c.height / 2); g.rotate(VW.rot * Math.PI / 180);
+    g.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+    show(c.toDataURL('image/jpeg', 0.85));
+  };
+  img.src = src;
+}
+function openViewer_(id) {
+  const f = state.files.find(x => x.id == id);
+  if (!canView_(f)) return;
+  if (!/^image\//.test(f.payload.mimeType)) { // PDFは、新しいタブで開く
+    const bin = atob(f.payload.base64), u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    window.open(URL.createObjectURL(new Blob([u8], { type: 'application/pdf' })), '_blank');
+    return;
+  }
+  const el = viewerEl_();
+  VW.id = id; VW.rot = 0; VW.zoom = false;
+  document.getElementById('vtitle').textContent = '写真 ' + fileNo_(id) + '：' + f.name;
+  el.style.display = 'flex';
+  drawViewer_();
+}
 function renderFiles() {
   $('#files').innerHTML = state.files.map(f =>
-    `<li>${f.thumb ? `<img class="th" src="${f.thumb}" alt="" title="${esc(f.name)}" onerror="this.style.visibility='hidden'">` : '<span class="th pdf" title="' + esc(f.name) + '">' + (/\.xml$/i.test(f.name) ? 'XML' : (/\.pdf$/i.test(f.name) ? 'PDF' : '画像')) + '</span>'}<span class="dot ${f.cls}"></span><small>${esc(f.status)}</small>${f.cls === 'err' && f.payload ? `<button class="x" data-retry="${f.id}">やり直す</button>` : ''}${f.cls !== 'busy' ? `<button class="delx" data-rmfile="${f.id}" aria-label="この写真を削除" title="この写真を削除">×</button>` : ''}</li>`).join('');
+    `<li><span class="no">${fileNo_(f.id)}</span>${f.thumb ? `<img class="th" data-view="${f.id}" src="${f.thumb}" alt="" title="${esc(f.name)}" onerror="this.style.visibility='hidden'">` : '<span class="th pdf"' + (canView_(f) ? ' data-view="' + f.id + '"' : '') + ' title="' + esc(f.name) + '">' + (/\.xml$/i.test(f.name) ? 'XML' : (/\.pdf$/i.test(f.name) ? 'PDF' : '画像')) + '</span>'}<span class="dot ${f.cls}"></span><small>${esc(f.status)}</small>${f.cls === 'err' && f.payload ? `<button class="x" data-retry="${f.id}">やり直す</button>` : ''}${f.cls !== 'busy' ? `<button class="delx" data-rmfile="${f.id}" aria-label="この写真を削除" title="この写真を削除">×</button>` : ''}</li>`).join('');
   updateStart();
 }
 $('#startBtn').addEventListener('click', startAnalysis);
@@ -636,8 +707,8 @@ function renderDocs() {
     }
     if (d.docType === 'sme') notes = notes.filter(n => !/証券番号|基礎年金番号|番号/.test(n));
     if (dupIds[d._id]) notes.push('同じ証券番号・内容の証明書が他にもあるため、重複として計算から除外されます。');
-    return `<div class="doc ${esc(d.docType)}"><div class="doc-head"><b>${esc(TYPE_LABEL[d.docType] || '種類不明')}</b>
-      <small>${esc(d._fileName || '')}</small><button class="rm" data-rm="${d._id}">この証明書を除外</button></div>
+    return `<div class="doc ${esc(d.docType)}"><div class="doc-head">${fileNo_(d._fileKey) ? `<span class="no">${fileNo_(d._fileKey)}</span>` : ''}<b>${esc(TYPE_LABEL[d.docType] || '種類不明')}</b>
+      ${d._fileKey != null && fileNo_(d._fileKey) ? `<button class="src" data-view="${d._fileKey}" title="元の写真を見る">📷 写真${fileNo_(d._fileKey)}：${esc(d._fileName || '')}</button>` : `<small>${esc(d._fileName || '')}</small>`}<button class="rm" data-rm="${d._id}">この証明書を除外</button></div>
       ${body}${notes.length ? `<div class="note">${notes.map(n => `・${esc(n)}`).join('<br>')}</div>` : ''}</div>`;
   }).join('');
 }
@@ -665,14 +736,15 @@ document.addEventListener('input', e => {
 document.addEventListener('click', e => {
   const rm = e.target.closest && e.target.closest('[data-rm]');
   if (rm) { state.docs = state.docs.filter(d => d._id != rm.dataset.rm); renderDocs(); markDirty_(); }
+  const vw = e.target.closest && e.target.closest('[data-view]');
+  if (vw) { openViewer_(vw.dataset.view); return; }
   const rf = e.target.closest && e.target.closest('[data-rmfile]');
   if (rf) {
     const fid = rf.dataset.rmfile;
     state.files = state.files.filter(f => f.id != fid);
     // その写真から読み取った証明書も、一緒に取り除く
-    const hadDocs = state.docs.some(d => d._fileKey == fid);
-    if (hadDocs) { state.docs = state.docs.filter(d => d._fileKey != fid); renderDocs(); }
-    renderFiles(); markDirty_();
+    state.docs = state.docs.filter(d => d._fileKey != fid);
+    renderDocs(); renderFiles(); markDirty_();
   }
   const rt = e.target.closest && e.target.closest('[data-retry]');
   if (rt) { const it = state.files.find(x => x.id == rt.dataset.retry); if (it && it.payload) { it.cls = 'wait'; it.status = '待機中'; renderFiles(); } }
