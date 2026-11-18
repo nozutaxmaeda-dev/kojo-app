@@ -49,6 +49,8 @@ h2{font-size:16px;margin:28px 0 10px}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--ink-soft);flex:none}
 .dot.wait{background:#fff;border:2px solid var(--ink-soft)} .dot.busy{background:var(--marker-edge)} .dot.ok{background:var(--ok)} .dot.err{background:var(--err)}
 #files small{color:var(--ink-soft)}
+.skipnote{margin:10px 0 0;padding:10px 14px;background:#eef6ee;border:1px solid #9cc5a1;border-left:6px solid #3f7a4a;font-size:13px}
+.skipnote ul{margin:4px 0 0;padding-left:18px}
 .no{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 5px;border-radius:11px;background:#1b2b3a;color:#fff;font-size:13px;font-weight:700;line-height:1}
 #files li .no{position:absolute;top:4px;left:4px;z-index:1;pointer-events:none}
 #files .th[data-view]{cursor:zoom-in}
@@ -792,11 +794,13 @@ function lifeTable(rows, n, who) {
   }
   return h + '</table>';
 }
+// 控除の上限に達していて、申告書に記入しなくてよい契約（needed が false のもの）を除く
+const shown_ = rows => (rows || []).filter(r => r.needed !== false);
 function personHTML(p) {
-  const f = p.form, l = f.life;
+  const f = p.form, l = f.lifeShown || f.life;
   const life = `
   <div class="blk"><div class="ttl">生命保険料控除</div>
-    <div class="sub">一般の生命保険料</div>${lifeTable(f.generalRows, 3)}
+    <div class="sub">一般の生命保険料</div>${lifeTable(shown_(f.generalRows), 3)}
     <div class="cells">
       ${cell('Ａ　(a)のうち新保険料等の合計', l.A, {big:1})}${cell('Ｂ　(a)のうち旧保険料等の合計', l.B, {big:1})}
     </div>
@@ -804,9 +808,9 @@ function personHTML(p) {
       ${cell('① Ａ→計算式Ⅰ', l.s1)}${cell('② Ａ→計算式Ⅱ', l.s2)}${cell('③ Ｂ→計算式Ⅲ', l.s3)}
       ${cell('④ ①＋③（最高4万）', l.s4)}${cell('⑤ ②＋③（最高6万）', l.s5)}${cell('㋑ 一般の控除額', l.iota, {key:1})}
     </div>
-    <div class="sub">介護医療保険料</div>${lifeTable(f.careRows, 2)}
+    <div class="sub">介護医療保険料</div>${lifeTable(shown_(f.careRows), 2)}
     <div class="cells">${cell('Ｃ　(a)の合計', l.C, {big:1})}${cell('㋺ 介護医療の控除額', l.ro, {key:1})}</div>
-    <div class="sub">個人年金保険料</div>${lifeTable(f.pensionRows, 2, 'pension')}
+    <div class="sub">個人年金保険料</div>${lifeTable(shown_(f.pensionRows), 2, 'pension')}
     <div class="cells">
       ${cell('Ｄ 新', l.D)}${cell('Ｅ 旧', l.E)}${cell('⑥ Ｄ→Ⅰ', l.s6)}${cell('⑦ Ｅ→Ⅲ', l.s7)}${cell('⑧ ⑥＋⑦（最高4万）', l.s8)}${cell('㋩ 個人年金の控除額', l.ha, {key:1})}
     </div>
@@ -816,14 +820,15 @@ function personHTML(p) {
   </div>`;
 
   let q = `<table class="rows"><tr><th>保険会社等</th><th>種類（目的）</th><th>期間</th><th>契約者</th><th>居住者等の氏名</th><th>区分</th><th>Ⓐ 金額</th></tr>`;
-  for (let i = 0; i < Math.max(2, f.quakeRows.length); i++) {
-    const r = f.quakeRows[i];
+  const qRows = shown_(f.quakeRows);
+  for (let i = 0; i < Math.max(2, qRows.length); i++) {
+    const r = qRows[i];
     q += r ? `<tr><td class="hl">${esc(r.insurer)}</td><td class="hl">${esc(r.productName)}${r.target ? '（' + esc(r.target) + '）' : ''}</td><td class="hl">${esc(r.period)}</td><td class="hl">${esc(r.holder)}</td><td class="todo">要記入<br>（証明書に記載なし）</td><td class="hl" style="text-align:center">${esc(r.category)}</td><td class="amt hl">${yen(r.amount)}円</td></tr>`
            : `<tr><td class="empty">　</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`;
   }
   q += '</table>';
   const quake = `<div class="blk"><div class="ttl">地震保険料控除</div>${q}
-    <div class="cells">${cell('Ⓑ 地震保険料の合計', f.qB)}${cell('Ⓒ 旧長期損害の合計', f.qC)}${cell('Ⓑの金額（最高5万）', f.qk.b)}${cell('Ⓒの金額（最高1.5万）', f.qk.c)}${cell('地震保険料控除額（最高5万）', f.qk.total, {key:1, big:1})}</div></div>`;
+    <div class="cells">${cell('Ⓑ 地震保険料の合計', f.qBs != null ? f.qBs : f.qB)}${cell('Ⓒ 旧長期損害の合計', f.qCs != null ? f.qCs : f.qC)}${cell('Ⓑの金額（最高5万）', f.qk.b)}${cell('Ⓒの金額（最高1.5万）', f.qk.c)}${cell('地震保険料控除額（最高5万）', f.qk.total, {key:1, big:1})}</div></div>`;
 
   let s = `<table class="rows"><tr><th>社会保険の種類</th><th>支払先の名称</th><th>あなたが払った金額</th></tr>`;
   s += f.socialRows.length ? f.socialRows.map(r => `<tr><td class="hl">${esc(r.kind)}</td><td class="hl">${esc(r.payee)}</td><td class="amt hl">${yen(r.amount)}円</td></tr>`).join('')
@@ -835,9 +840,11 @@ function personHTML(p) {
     f.smeRows.map(r => `<tr><td>${esc(r.label)}</td><td class="amt ${r.amount ? 'hl' : ''}">${r.amount ? yen(r.amount) + '円' : ''}</td></tr>`).join('')}</table>
     <div class="cells">${cell('合計（控除額）', f.smeTotal, {key:1, big:1})}</div></div>`;
 
+  const skipped = [].concat(f.generalRows || [], f.careRows || [], f.pensionRows || [], f.quakeRows || []).filter(r => r.needed === false);
+  const skipNote = skipped.length ? `<div class="skipnote"><b>申告書に記入しなくてよい契約が ${skipped.length} 件あります。</b><br>控除額には上限があり、下の契約だけで上限に達しています。次の契約は、記入しなくて構いません（記入しても控除額は変わりません）。<ul>${skipped.map(r => `<li>${esc(r.insurer)} ${esc(r.productName)}　${yen(r.amount)}円${r.system ? '（' + esc(r.system) + '）' : ''}</li>`).join('')}</ul></div>` : '';
   const warns = p.warnings.map(w => `<div class="warn">${esc(w)}</div>`).join('');
   return `<section class="person">
-    <div class="person-head"><h3>${esc(p.name)} さん</h3></div>
+    <div class="person-head"><h3>${esc(p.name)} さん</h3></div>${skipNote}
     <div class="sheet"><div>${life}</div><div>${quake}${social}${sme}</div></div>
     <div class="explain"><h4>計算のしかた</h4><ul>${p.explain.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>${warns}</section>`;
 }
