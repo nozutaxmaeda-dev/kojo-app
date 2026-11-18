@@ -42,13 +42,14 @@ h2{font-size:16px;margin:28px 0 10px}
 #drop.hover{background:var(--marker)}
 #drop strong{display:block;font-size:16px}
 #drop span{color:var(--ink-soft);font-size:13px}
-#files{list-style:none;margin:10px 0 0;padding:0;font-size:13px}
-#files li{padding:6px 0;display:flex;gap:10px;align-items:center}
-.th{width:72px;height:72px;object-fit:cover;border:1px solid var(--rule);background:#fff;flex:none}
+#files{list-style:none;margin:10px 0 0;padding:0;font-size:13px;display:grid;grid-template-columns:repeat(auto-fill,minmax(98px,1fr));gap:10px}
+#files li{position:relative;padding:0;display:flex;flex-wrap:wrap;gap:2px 6px;align-items:center;align-content:flex-start;min-width:0}
+.th{width:100%;aspect-ratio:1/1;height:auto;object-fit:cover;border:1px solid var(--rule);background:#fff;flex:none}
 .th.pdf{display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--ink-soft)}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--ink-soft);flex:none}
 .dot.wait{background:#fff;border:2px solid var(--ink-soft)} .dot.busy{background:var(--marker-edge)} .dot.ok{background:var(--ok)} .dot.err{background:var(--err)}
 #files small{color:var(--ink-soft)}
+#files button.delx{position:absolute;top:4px;right:4px;width:28px;height:28px;border-radius:50%;border:0;background:rgba(0,0,0,.65);color:#fff;font-size:18px;line-height:28px;padding:0;cursor:pointer}
 #files a{color:var(--ink)}
 #files button.x{border:0;background:none;color:var(--ink-soft);cursor:pointer;font:inherit;font-size:12px;text-decoration:underline}
 
@@ -519,7 +520,7 @@ function updateStart() {
 $('#filerName').addEventListener('input', () => { updateStart(); markDirty_(); });
 function renderFiles() {
   $('#files').innerHTML = state.files.map(f =>
-    `<li>${f.thumb ? `<img class="th" src="${f.thumb}" alt="" title="${esc(f.name)}" onerror="this.style.visibility='hidden'">` : '<span class="th pdf" title="' + esc(f.name) + '">' + (/\.xml$/i.test(f.name) ? 'XML' : (/\.pdf$/i.test(f.name) ? 'PDF' : '画像')) + '</span>'}<span class="dot ${f.cls}"></span><small>${esc(f.status)}</small>${f.cls === 'err' && f.payload ? `<button class="x" data-retry="${f.id}">やり直す</button>` : ''}${f.cls === 'wait' ? `<button class="x" data-rmfile="${f.id}">取り消し</button>` : ''}</li>`).join('');
+    `<li>${f.thumb ? `<img class="th" src="${f.thumb}" alt="" title="${esc(f.name)}" onerror="this.style.visibility='hidden'">` : '<span class="th pdf" title="' + esc(f.name) + '">' + (/\.xml$/i.test(f.name) ? 'XML' : (/\.pdf$/i.test(f.name) ? 'PDF' : '画像')) + '</span>'}<span class="dot ${f.cls}"></span><small>${esc(f.status)}</small>${f.cls === 'err' && f.payload ? `<button class="x" data-retry="${f.id}">やり直す</button>` : ''}${f.cls !== 'busy' ? `<button class="delx" data-rmfile="${f.id}" aria-label="この写真を削除" title="この写真を削除">×</button>` : ''}</li>`).join('');
   updateStart();
 }
 $('#startBtn').addEventListener('click', startAnalysis);
@@ -665,7 +666,14 @@ document.addEventListener('click', e => {
   const rm = e.target.closest && e.target.closest('[data-rm]');
   if (rm) { state.docs = state.docs.filter(d => d._id != rm.dataset.rm); renderDocs(); markDirty_(); }
   const rf = e.target.closest && e.target.closest('[data-rmfile]');
-  if (rf) { state.files = state.files.filter(f => f.id != rf.dataset.rmfile); renderFiles(); }
+  if (rf) {
+    const fid = rf.dataset.rmfile;
+    state.files = state.files.filter(f => f.id != fid);
+    // その写真から読み取った証明書も、一緒に取り除く
+    const hadDocs = state.docs.some(d => d._fileKey == fid);
+    if (hadDocs) { state.docs = state.docs.filter(d => d._fileKey != fid); renderDocs(); }
+    renderFiles(); markDirty_();
+  }
   const rt = e.target.closest && e.target.closest('[data-retry]');
   if (rt) { const it = state.files.find(x => x.id == rt.dataset.retry); if (it && it.payload) { it.cls = 'wait'; it.status = '待機中'; renderFiles(); } }
 });
