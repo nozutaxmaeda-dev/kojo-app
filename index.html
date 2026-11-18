@@ -514,6 +514,12 @@ async function startAnalysis() {
       if (res.error) { item.status = BUSY_MSG; item.cls = 'err'; }
       else {
         item.status = '読み取り完了（' + res.documents.length + '件）'; item.cls = 'ok';
+        const sk = res.skipped || [];
+        if (sk.length) {
+          const yrs = [...new Set(sk.map(x => x.taxYear + '年分'))].join('・');
+          item.status = res.documents.length ? '読み取り完了（' + res.documents.length + '件）／' + yrs + 'の証明書 ' + sk.length + '件は今年の対象外のため除きました' : yrs + 'の証明書のため、今年（令和8年分）の対象外です。計算に含めません';
+          item.cls = res.documents.length ? 'ok' : 'err'; item.skipped = !res.documents.length;
+        }
         res.documents.forEach(d => { d._id = state.nextId++; d._fileKey = item.id; d._fileName = payload.fileName; state.docs.push(d); });
       }
     } catch (e) { item.status = BUSY_MSG; item.cls = 'err'; }
@@ -593,7 +599,7 @@ function openViewer_(id) {
 }
 function renderFiles() {
   $('#files').innerHTML = state.files.map(f =>
-    `<li><span class="no">${fileNo_(f.id)}</span>${f.thumb ? `<img class="th" data-view="${f.id}" src="${f.thumb}" alt="" title="${esc(f.name)}" onerror="this.style.visibility='hidden'">` : '<span class="th pdf"' + (canView_(f) ? ' data-view="' + f.id + '"' : '') + ' title="' + esc(f.name) + '">' + (/\.xml$/i.test(f.name) ? 'XML' : (/\.pdf$/i.test(f.name) ? 'PDF' : '画像')) + '</span>'}<span class="dot ${f.cls}"></span><small>${esc(f.status)}</small>${f.cls === 'err' && f.payload ? `<button class="x" data-retry="${f.id}">やり直す</button>` : ''}${f.cls !== 'busy' ? `<button class="delx" data-rmfile="${f.id}" aria-label="この写真を削除" title="この写真を削除">×</button>` : ''}</li>`).join('');
+    `<li><span class="no">${fileNo_(f.id)}</span>${f.thumb ? `<img class="th" data-view="${f.id}" src="${f.thumb}" alt="" title="${esc(f.name)}" onerror="this.style.visibility='hidden'">` : '<span class="th pdf"' + (canView_(f) ? ' data-view="' + f.id + '"' : '') + ' title="' + esc(f.name) + '">' + (/\.xml$/i.test(f.name) ? 'XML' : (/\.pdf$/i.test(f.name) ? 'PDF' : '画像')) + '</span>'}<span class="dot ${f.cls}"></span><small>${esc(f.status)}</small>${f.cls === 'err' && f.payload && !f.skipped ? `<button class="x" data-retry="${f.id}">やり直す</button>` : ''}${f.cls !== 'busy' ? `<button class="delx" data-rmfile="${f.id}" aria-label="この写真を削除" title="この写真を削除">×</button>` : ''}</li>`).join('');
   updateStart();
 }
 $('#startBtn').addEventListener('click', startAnalysis);
