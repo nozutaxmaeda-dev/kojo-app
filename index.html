@@ -91,7 +91,12 @@ input.t:focus,select.t:focus,.num input:focus{outline:2px solid var(--marker-edg
 .amt-item{margin-bottom:10px}
 .amt-item .n{font-size:13px;font-weight:700;margin-bottom:2px}
 .amt-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 12px;max-width:520px}
-.note{font-size:12px;color:var(--todo);margin-top:6px}
+.note{font-size:12px;color:#8a4b00;background:#fff3d6;border-left:4px solid #e08a00;padding:6px 10px;margin-top:8px}
+label.f.alert>span{color:#b45309;font-weight:700}
+label.f.alert input.t,label.f.alert select.t,label.f.alert .num input{background:#fff3d6;border:2px solid #e08a00}
+.fnote{font-size:12px;line-height:1.5;color:#8a4b00;background:#fff3d6;border-left:3px solid #e08a00;padding:4px 8px;margin-top:3px}
+#skipBox{display:none;margin:14px 0 0;padding:12px 14px;background:#fff3d6;border:2px solid #e08a00;border-left:8px solid #e08a00;font-size:14px}
+#skipBox ul{margin:4px 0 0;padding-left:18px}
 
 /* 計算結果：申告書の見た目 */
 .person{margin-bottom:34px}
@@ -221,6 +226,7 @@ button.cta.again:hover:not(:disabled){background:#97350c}
     <span>年齢23歳未満の扶養親族がいる　<b style="color:var(--todo)">→ いる場合は、申告書の☆欄に記入が必要です</b></span>
   </label>
 
+  <div id="skipBox"></div>
   <div id="docsWrap" style="display:none">
     <h2>① 読み取り結果（違っていたら直してください）</h2>
     <div id="docs"></div>
@@ -520,13 +526,15 @@ async function startAnalysis() {
           item.status = res.documents.length ? '読み取り完了（' + res.documents.length + '件）／' + yrs + 'の証明書 ' + sk.length + '件は今年の対象外のため除きました' : yrs + 'の証明書のため、今年（令和8年分）の対象外です。計算に含めません';
           item.cls = res.documents.length ? 'ok' : 'err'; item.skipped = !res.documents.length;
         }
+        if (sk.length) { state.skipped = (state.skipped || []).filter(e => e.fileKey !== item.id); state.skipped.push({ fileKey: item.id, name: payload.fileName, items: sk }); }
         res.documents.forEach(d => { d._id = state.nextId++; d._fileKey = item.id; d._fileName = payload.fileName; state.docs.push(d); });
       }
     } catch (e) { item.status = BUSY_MSG; item.cls = 'err'; }
     item.file = null; renderFiles(); renderDocs(); busyDone_(pending.indexOf(item) + 1, pending.length);
   }
   state.busy = false; updateStart(); busyHide_(); markDirty_();
-  if (state.docs.length) scrollToSection_('#docsWrap');
+  renderSkip_();
+  if ((state.skipped || []).length) scrollToSection_('#skipBox'); else if (state.docs.length) scrollToSection_('#docsWrap');
 }
 function updateStart() {
   const n = state.files.filter(f => f.cls === 'wait').length, b = $('#startBtn');
@@ -610,17 +618,24 @@ function setPath(o, p, v) {
   const ks = p.split('.'); const last = ks.pop();
   const t = ks.reduce((a, k) => (a[k] = a[k] || {}), o); t[last] = v;
 }
+let MARKS = {}, PLACED = {};
+/** 注意が必要な欄（MARKS に入っている欄）を色変えし、その欄の下に注意書きを出す */
+function mk_(path) {
+  PLACED[path] = true;
+  const m = MARKS[path];
+  return m ? { cls: ' alert', html: m.map(t => '<div class="fnote">' + esc(t) + '</div>').join('') } : { cls: '', html: '' };
+}
 function fld(d, path, label, span, num) {
-  const v = getPath(d, path);
+  const v = getPath(d, path); const m = mk_(path);
   const input = num
     ? `<div class="num"><input type="text" inputmode="numeric" autocomplete="off" data-num="1" value="${esc(yen(v))}" data-doc="${d._id}" data-path="${path}"><em>円</em></div>`
     : `<input class="t" type="text" value="${esc(v)}" data-doc="${d._id}" data-path="${path}">`;
-  return `<label class="f s${span}"><span>${label}</span>${input}</label>`;
+  return `<label class="f s${span}${m.cls}"><span>${label}</span>${input}${m.html}</label>`;
 }
 function sel(d, path, label, span, opts) {
-  const v = getPath(d, path);
-  return `<label class="f s${span}"><span>${label}</span><select class="t" data-doc="${d._id}" data-path="${path}">${
-    opts.map(o => `<option ${o[0] === v ? 'selected' : ''} value="${esc(o[0])}">${esc(o[1])}</option>`).join('')}</select></label>`;
+  const v = getPath(d, path); const m = mk_(path);
+  return `<label class="f s${span}${m.cls}"><span>${label}</span><select class="t" data-doc="${d._id}" data-path="${path}">${
+    opts.map(o => `<option ${o[0] === v ? 'selected' : ''} value="${esc(o[0])}">${esc(o[1])}</option>`).join('')}</select>${m.html}</label>`;
 }
 function amtRow(d, key, label) {
   const one = (p, x) => `<label class="f"><span>${x}</span><div class="num"><input aria-label="${label} ${x}" type="text" inputmode="numeric" autocomplete="off" data-num="1" value="${esc(yen(getPath(d, p)))}" data-doc="${d._id}" data-path="${p}"><em>円</em></div></label>`;
@@ -646,12 +661,24 @@ const LIFE_CATS = [['general', '一般の生命保険料'], ['care', '介護医�
 function usedAmt_(o) { return o ? (o.declared != null ? o.declared : o.certified) : null; }
 /** 金額の入力欄（表示は1つ。編集した値は also にも入れる） */
 function amtField(d, label, value, path, also, span) {
-  return `<label class="f s${span || 6}"><span>${label}</span><div class="num"><input type="text" inputmode="numeric" autocomplete="off" data-num="1" value="${esc(yen(value))}" data-doc="${d._id}" data-path="${path}"${also ? ` data-also="${also}"` : ''}><em>円</em></div></label>`;
+  const m = mk_(path);
+  return `<label class="f s${span || 6}${m.cls}"><span>${label}</span><div class="num"><input type="text" inputmode="numeric" autocomplete="off" data-num="1" value="${esc(yen(value))}" data-doc="${d._id}" data-path="${path}"${also ? ` data-also="${also}"` : ''}><em>円</em></div>${m.html}</label>`;
+}
+/** 今年（令和8年分）以外の証明書として除いたものを、読み取り結果の手前に目立つ形で出す */
+function renderSkip_() {
+  const box = $('#skipBox'); if (!box) return;
+  const list = [];
+  (state.skipped || []).forEach(e => e.items.forEach(x => list.push({ no: fileNo_(e.fileKey), name: e.name, x })));
+  box.style.display = list.length ? 'block' : 'none';
+  box.innerHTML = list.length ? '<b>⚠ 今年（令和8年分）の証明書ではないため、除いたものがあります（計算には含めません）</b><ul>' +
+    list.map(o => '<li>' + (o.no ? '写真' + o.no + '：' : '') + esc(o.x.taxYear + '年分') + ' ' + esc((o.x.insurer || '') + ' ' + (o.x.productName || '')) + '</li>').join('') + '</ul>' : '';
 }
 function renderDocs() {
   $('#docsWrap').style.display = state.docs.length ? 'block' : 'none';
+  renderSkip_();
   const dupIds = findDuplicateIds_();
   $('#docs').innerHTML = state.docs.map(d => {
+    const mkBody = () => {
     let body;
     if (d.docType === 'life') {
       const cats = LIFE_CATS.filter(c => usedAmt_(d[c[0]]) > 0);
@@ -673,8 +700,11 @@ function renderDocs() {
     } else {
       body = `<div class="row">${sel(d, 'docType', '証明書の種類を選んでください', 6, [['unknown', '（未選択）'], ['life', '生命保険料控除証明書'], ['earthquake', '地震保険料控除証明書'], ['sme', '小規模企業共済等掛金払込証明書'], ['social', '社会保険料控除証明書']])}</div>`;
     }
-    body = '<div class="sec">' + body + '</div>';
+    return '<div class="sec">' + body + '</div>';
+    };
     let notes = [];
+    MARKS = {}; PLACED = {};
+    const mark = (path, text) => { (MARKS[path] = MARKS[path] || []).push(text); };
     // 払込停止（契約終了など）の証明書は、証明額が最終額なので、概算・暫定の注意書きは出さない
     if (d.docType === 'life' && d.paymentMethod !== '年' && !d.paymentStopped) {
       const CAT_LABEL = { general: '一般', care: '介護医療', pension: '個人年金' };
@@ -693,12 +723,12 @@ function renderDocs() {
         const isMonthly = yearEst != null;
         if (o.declared == null) {
           // 年間申告額が読み取れない／マスクされている → 証明額を暫定採用
-          notes.push(CAT_LABEL[key] + '：' + (isMonthly
+          mark(key + '.declared', (isMonthly
             ? '月払ですが、12か月分の申告額が読み取れないため、証明額 ' + yen(o.certified) + '円を暫定採用しています。' + basis + 'を参考に、実際の払込金額を確認の上、年間申告額を修正してください。'
             : '「ご参考」欄の年間申告額が読み取れない／マスクされているため、証明額 ' + yen(o.certified) + '円を暫定採用しています。月払で10〜12月の払込がある場合は不足するので確認してください。'));
         } else if (isMonthly && d.premiumPerPayment > 0 && used === d.premiumPerPayment) {
           // 年間申告額が1回分保険料と同額 → 月額を年額として読み違えている疑いがある
-          notes.push(CAT_LABEL[key] + '：年間申告額（' + yen(used) + '円）が1回分保険料と同額になっています。月払の場合、年間の金額は通常その12倍（' +
+          mark(key + '.declared', '年間申告額（' + yen(used) + '円）が1回分保険料と同額になっています。月払の場合、年間の金額は通常その12倍（' +
             yen(yearEst) + '円）になるはずです。証明書の記載をご確認ください。');
         }
         // 年間申告額（12か月分）が既に記載されている場合は、概算の参考値は不要なので何も表示しない
@@ -706,18 +736,20 @@ function renderDocs() {
     }
     if (d.docType === 'sme' && d.smeScheduled > 0) {
       const smeTotal = d.smeTotal != null ? d.smeTotal : ((d.smePaidToSep || 0) + (d.smeScheduled || 0));
-      notes.push('10〜12月の払込予定額 ' + yen(d.smeScheduled) + '円を含む合計 ' + yen(smeTotal) + '円です。年末までの引落が確実か確認してください（未払分は控除できません）。');
+      mark('smeTotal', '10〜12月の払込予定額 ' + yen(d.smeScheduled) + '円を含む合計 ' + yen(smeTotal) + '円です。年末までの引落が確実か確認してください（未払分は控除できません）。');
     }
     if (d.notes) notes.push(d.notes);
-    if (d.docType === 'life' && d.otherName) notes.push('契約者とは別に「' + d.otherName + '」という氏名が記載されています。契約者（申告者）名をご確認の上、上の欄で修正してください。');
+    if (d.docType === 'life' && d.otherName) mark('holderName', '契約者とは別に「' + d.otherName + '」という氏名が記載されています。契約者（申告者）名をご確認の上、上の欄で修正してください。');
     if (state.filerName && d.holderName && nameKeyClient_(d.holderName) !== nameKeyClient_(state.filerName)) {
-      notes.push('契約者氏名「' + d.holderName + '」が、申告者名「' + state.filerName + '」と異なります。契約者と保険料の負担者（申告者）が異なるケースと想定して計算しています。（契約者欄の修正は不要です）');
+      mark('holderName', '契約者氏名「' + d.holderName + '」が、申告者名「' + state.filerName + '」と異なります。契約者と保険料の負担者（申告者）が異なるケースと想定して計算しています。（契約者欄の修正は不要です）');
     }
     if (d.docType === 'sme') notes = notes.filter(n => !/証券番号|基礎年金番号|番号/.test(n));
     if (dupIds[d._id]) notes.push('同じ証券番号・内容の証明書が他にもあるため、重複として計算から除外されます。');
+    const bodyHtml = mkBody();
+    Object.keys(MARKS).forEach(k => { if (!PLACED[k]) MARKS[k].forEach(t => notes.push(t)); }); // 表示する欄が無い注意は、下にまとめて出す
     return `<div class="doc ${esc(d.docType)}"><div class="doc-head">${fileNo_(d._fileKey) ? `<span class="no">${fileNo_(d._fileKey)}</span>` : ''}<b>${esc(TYPE_LABEL[d.docType] || '種類不明')}</b>
       ${d._fileKey != null && fileNo_(d._fileKey) ? `<button class="src" data-view="${d._fileKey}" title="元の写真を見る">📷 写真${fileNo_(d._fileKey)}：${esc(d._fileName || '')}</button>` : `<small>${esc(d._fileName || '')}</small>`}<button class="rm" data-rm="${d._id}">この証明書を除外</button></div>
-      ${body}${notes.length ? `<div class="note">${notes.map(n => `・${esc(n)}`).join('<br>')}</div>` : ''}</div>`;
+      ${bodyHtml}${notes.length ? `<div class="note">${notes.map(n => `・${esc(n)}`).join('<br>')}</div>` : ''}</div>`;
   }).join('');
 }
 document.addEventListener('input', e => {
@@ -752,6 +784,7 @@ document.addEventListener('click', e => {
     state.files = state.files.filter(f => f.id != fid);
     // その写真から読み取った証明書も、一緒に取り除く
     state.docs = state.docs.filter(d => d._fileKey != fid);
+    state.skipped = (state.skipped || []).filter(e => e.fileKey != fid);
     renderDocs(); renderFiles(); markDirty_();
   }
   const rt = e.target.closest && e.target.closest('[data-retry]');
