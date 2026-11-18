@@ -595,7 +595,8 @@ function renderDocs() {
     }
     body = '<div class="sec">' + body + '</div>';
     let notes = [];
-    if (d.docType === 'life' && d.paymentMethod !== '年') {
+    // 払込停止（契約終了など）の証明書は、証明額が最終額なので、概算・暫定の注意書きは出さない
+    if (d.docType === 'life' && d.paymentMethod !== '年' && !d.paymentStopped) {
       const CAT_LABEL = { general: '一般', care: '介護医療', pension: '個人年金' };
       ['general', 'care', 'pension'].forEach(key => {
         const o = d[key];
