@@ -231,6 +231,7 @@ button.cta.again:hover:not(:disabled){background:#97350c}
   <div id="skipBox"></div>
   <div id="docsWrap" style="display:none">
     <h2>① 読み取り結果（違っていたら直してください）</h2>
+    <div id="skipHint" style="display:none;margin:0 0 8px;padding:6px 10px;background:#fff3d6;border-left:4px solid #e08a00;font-size:13px"></div>
     <div id="docs"></div>
     <div class="confirm-box">
       <label class="chk" id="verifyWrap"><input type="checkbox" id="verifyChk"><span>実際の証明書と見比べて、氏名・金額が合っていることを確認しました。</span></label>
@@ -546,7 +547,7 @@ async function startAnalysis() {
   }
   state.busy = false; updateStart(); busyHide_(); markDirty_();
   renderSkip_();
-  if ((state.skipped || []).length) scrollToSection_('#skipBox'); else if (state.docs.length) scrollToSection_('#docsWrap');
+  scrollToSection_(state.docs.length ? '#docsWrap' : '#skipBox');
 }
 function updateStart() {
   const n = state.files.filter(f => f.cls === 'wait').length, b = $('#startBtn');
@@ -694,6 +695,12 @@ function renderSkip_() {
     yr.map(o => '<li>' + nm(o) + esc(o.x.taxYear + '年分') + ' ' + esc((o.x.insurer || '') + ' ' + (o.x.productName || '')) + '</li>').join('') + '</ul></div>';
   box.style.display = h ? 'block' : 'none';
   box.innerHTML = h;
+  // 読み取り結果があるときは、その一覧のすぐ下に出す（見落とし防止）。無いときは単独で出す
+  if (state.docs.length) $('#docs').after(box); else $('#docsWrap').before(box);
+  const n = (state.skipped || []).reduce((a, e) => a + e.items.length, 0) + (state.excluded || []).reduce((a, e) => a + e.items.length, 0);
+  const hint = $('#skipHint');
+  hint.style.display = (h && state.docs.length) ? 'block' : 'none';
+  hint.innerHTML = '⚠ 計算に含めず、除いた書類が ' + n + ' 件あります。<b>下の枠（読み取り結果の下）を必ず確認してください。</b>';
 }
 function renderDocs() {
   $('#docsWrap').style.display = state.docs.length ? 'block' : 'none';
@@ -761,7 +768,7 @@ function renderDocs() {
       mark('smeTotal', '10〜12月の払込予定額 ' + yen(d.smeScheduled) + '円を含む合計 ' + yen(smeTotal) + '円です。年末までの引落が確実か確認してください（未払分は控除できません）。');
     }
     if (d.docType === 'sme' && d.smeUnpaid) {
-      mark('smeTotal', '掛金が払い込まれていない月があります' + (d.smeUnpaidNote ? '（' + d.smeUnpaidNote + '）' : '') + '。そのため、今後（10〜12月）も払うものとは見なさず、' + (d.smePaidToSep != null ? '9月までに払い込まれた金額 ' + yen(d.smePaidToSep) + '円' : '現在の金額') + 'で計算しています' + (d.smeSkipped ? '（見越していた予定額 ' + yen(d.smeSkipped) + '円は含めていません）' : '') + '。★掛金を続けているか、やめたかを本人に確認してください。続けて12月までに払う場合は、金額を直してください。');
+      mark('smeTotal', '掛金が払い込まれていない月があります' + (d.smeUnpaidNote ? '（' + d.smeUnpaidNote + '）' : '') + '。そのため、今後（10〜12月）も払うものとは見なさず、' + (d.smePaidToSep != null ? '9月までに払い込まれた金額 ' + yen(d.smePaidToSep) + '円' : '現在の金額') + 'で計算しています' + (d.smeSkipped ? '（見越していた予定額 ' + yen(d.smeSkipped) + '円は含めていません）' : '') + '。★今後も掛金を続けているか、やめたかを確認してください。続けて12月までに払う場合は、金額を直してください。');
     }
     if (d.notes) notes.push(d.notes);
     if (d.docType === 'life' && d.otherName) mark('holderName', '契約者とは別に「' + d.otherName + '」という氏名が記載されています。契約者（申告者）名をご確認の上、上の欄で修正してください。');
