@@ -97,6 +97,8 @@ label.f.alert input.t,label.f.alert select.t,label.f.alert .num input{background
 .fnote{font-size:12px;line-height:1.5;color:#8a4b00;background:#fff3d6;border-left:3px solid #e08a00;padding:4px 8px;margin-top:3px}
 #skipBox{display:none;margin:14px 0 0;padding:12px 14px;background:#fff3d6;border:2px solid #e08a00;border-left:8px solid #e08a00;font-size:14px}
 #skipBox ul{margin:4px 0 0;padding-left:18px}
+#skipBox .skipitem+.skipitem{margin-top:12px;padding-top:10px;border-top:1px dashed #e08a00}
+#skipBox .housing{color:#7a1a00}
 
 /* 計算結果：申告書の見た目 */
 .person{margin-bottom:34px}
@@ -526,6 +528,16 @@ async function startAnalysis() {
           item.status = res.documents.length ? '読み取り完了（' + res.documents.length + '件）／' + yrs + 'の証明書 ' + sk.length + '件は今年の対象外のため除きました' : yrs + 'の証明書のため、今年（令和8年分）の対象外です。計算に含めません';
           item.cls = res.documents.length ? 'ok' : 'err'; item.skipped = !res.documents.length;
         }
+        const ex = res.excluded || [];
+        state.excluded = (state.excluded || []).filter(e => e.fileKey !== item.id);
+        if (ex.length) {
+          state.excluded.push({ fileKey: item.id, name: payload.fileName, items: ex });
+          const hasH = ex.some(x => x.kind === 'housing');
+          if (!res.documents.length && !sk.length) {
+            item.status = hasH ? '住宅借入金等の書類です。このアプリでは計算できません。必ず別に提出してください' : '保険料控除の証明書ではないため、計算に含めません';
+            item.cls = 'err'; item.skipped = true;
+          } else item.status += '／証明書以外 ' + ex.length + '件は除きました';
+        }
         if (sk.length) { state.skipped = (state.skipped || []).filter(e => e.fileKey !== item.id); state.skipped.push({ fileKey: item.id, name: payload.fileName, items: sk }); }
         res.documents.forEach(d => { d._id = state.nextId++; d._fileKey = item.id; d._fileName = payload.fileName; state.docs.push(d); });
       }
@@ -669,11 +681,19 @@ function amtField(d, label, value, path, also, span) {
 /** 今年（令和8年分）以外の証明書として除いたものを、読み取り結果の手前に目立つ形で出す */
 function renderSkip_() {
   const box = $('#skipBox'); if (!box) return;
-  const list = [];
-  (state.skipped || []).forEach(e => e.items.forEach(x => list.push({ no: fileNo_(e.fileKey), name: e.name, x })));
-  box.style.display = list.length ? 'block' : 'none';
-  box.innerHTML = list.length ? '<b>⚠ 今年（令和8年分）の証明書ではないため、除いたものがあります（計算には含めません）</b><ul>' +
-    list.map(o => '<li>' + (o.no ? '写真' + o.no + '：' : '') + esc(o.x.taxYear + '年分') + ' ' + esc((o.x.insurer || '') + ' ' + (o.x.productName || '')) + '</li>').join('') + '</ul>' : '';
+  const yr = [], hs = [], ot = [];
+  (state.skipped || []).forEach(e => e.items.forEach(x => yr.push({ no: fileNo_(e.fileKey), x })));
+  (state.excluded || []).forEach(e => e.items.forEach(x => (x.kind === 'housing' ? hs : ot).push({ no: fileNo_(e.fileKey), x })));
+  const nm = o => (o.no ? '写真' + o.no + '：' : '');
+  let h = '';
+  if (hs.length) h += '<div class="skipitem housing"><b>⚠ 住宅借入金等特別控除の書類があります。このアプリでは計算できないため、計算には含めません。<u>必ず、別に提出してください。</u></b><ul>' +
+    hs.map(o => '<li>' + nm(o) + esc(o.x.title || '住宅借入金等の書類') + '</li>').join('') + '</ul></div>';
+  if (ot.length) h += '<div class="skipitem"><b>保険料控除の証明書ではない書類を、除きました（計算には含めません）。</b><ul>' +
+    ot.map(o => '<li>' + nm(o) + esc(o.x.title || '（表題不明）') + '</li>').join('') + '</ul>※実際は保険料の控除証明書だった場合は、写真を撮り直して、もう一度選んでください。</div>';
+  if (yr.length) h += '<div class="skipitem"><b>⚠ 今年（令和8年分）の証明書ではないため、除いたものがあります（計算には含めません）</b><ul>' +
+    yr.map(o => '<li>' + nm(o) + esc(o.x.taxYear + '年分') + ' ' + esc((o.x.insurer || '') + ' ' + (o.x.productName || '')) + '</li>').join('') + '</ul></div>';
+  box.style.display = h ? 'block' : 'none';
+  box.innerHTML = h;
 }
 function renderDocs() {
   $('#docsWrap').style.display = state.docs.length ? 'block' : 'none';
@@ -790,6 +810,7 @@ document.addEventListener('click', e => {
     // その写真から読み取った証明書も、一緒に取り除く
     state.docs = state.docs.filter(d => d._fileKey != fid);
     state.skipped = (state.skipped || []).filter(e => e.fileKey != fid);
+    state.excluded = (state.excluded || []).filter(e => e.fileKey != fid);
     renderDocs(); renderFiles(); markDirty_();
   }
   const rt = e.target.closest && e.target.closest('[data-retry]');
@@ -897,7 +918,8 @@ function renderResults() {
   $('#resultsWrap').style.display = r && r.persons.length ? 'block' : 'none';
   if (!r) return;
   $('#results').innerHTML = r.persons.map(personHTML).join('');
-  $('#globalWarn').innerHTML = (r.warnings || []).map(w => `<div class="warn">${esc(w)}</div>`).join('');
+  const housingWarn = (state.excluded || []).some(e => e.items.some(x => x.kind === 'housing')) ? '<div class="warn" style="border-left-color:#c0392b"><b>住宅借入金等特別控除の書類は、このアプリでは計算できません。必ず、別に提出してください。</b></div>' : '';
+  $('#globalWarn').innerHTML = housingWarn + (r.warnings || []).map(w => `<div class="warn">${esc(w)}</div>`).join('');
 }
 
 /* ---------- 保存 ---------- */
