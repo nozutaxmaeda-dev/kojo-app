@@ -740,6 +740,9 @@ function renderDocs() {
       const smeTotal = d.smeTotal != null ? d.smeTotal : ((d.smePaidToSep || 0) + (d.smeScheduled || 0));
       mark('smeTotal', '10〜12月の払込予定額 ' + yen(d.smeScheduled) + '円を含む合計 ' + yen(smeTotal) + '円です。年末までの引落が確実か確認してください（未払分は控除できません）。');
     }
+    if (d.docType === 'sme' && d.smeUnpaid) {
+      mark('smeTotal', '掛金が払い込まれていない月があります' + (d.smeUnpaidNote ? '（' + d.smeUnpaidNote + '）' : '') + '。そのため、今後（10〜12月）も払うものとは見なさず、' + (d.smePaidToSep != null ? '9月までに払い込まれた金額 ' + yen(d.smePaidToSep) + '円' : '現在の金額') + 'で計算しています' + (d.smeSkipped ? '（見越していた予定額 ' + yen(d.smeSkipped) + '円は含めていません）' : '') + '。★掛金を続けているか、やめたかを本人に確認してください。続けて12月までに払う場合は、金額を直してください。');
+    }
     if (d.notes) notes.push(d.notes);
     if (d.docType === 'life' && d.otherName) mark('holderName', '契約者とは別に「' + d.otherName + '」という氏名が記載されています。契約者（申告者）名をご確認の上、上の欄で修正してください。');
     if (state.filerName && d.holderName && nameKeyClient_(d.holderName) !== nameKeyClient_(state.filerName)) {
