@@ -858,11 +858,11 @@ function cell(label, val, o) {
   return `<div class="cell ${on ? 'on' : 'off'} ${o.key ? 'key' : ''} ${o.big ? 'big' : ''}"><span class="lb">${label}</span><span class="vl">${on ? yen(val) + '円' : '—'}</span></div>`;
 }
 function lifeTable(rows, n, who) {
-  let h = `<table class="rows"><tr><th>保険会社等の名称</th><th>保険等の種類</th><th>保険期間</th><th>契約者の氏名</th><th>受取人の氏名</th>${who === 'pension' ? '' : '<th>新・旧</th>'}${who === 'pension' ? '<th>新・旧</th>' : ''}<th>(a) 金額</th></tr>`;
+  let h = `<table class="rows"><tr><th>保険会社等の名称</th><th>保険等の種類</th><th>保険期間</th><th>契約者の氏名</th><th>${who === 'pension' ? '年金支払開始日' : '受取人の氏名'}</th>${who === 'pension' ? '' : '<th>新・旧</th>'}${who === 'pension' ? '<th>新・旧</th>' : ''}<th>(a) 金額</th></tr>`;
   for (let i = 0; i < Math.max(n, rows.length); i++) {
     const r = rows[i];
     h += r
-      ? `<tr><td class="hl">${esc(r.insurer)}</td><td class="hl">${esc(r.productName)}</td><td class="hl">${esc(r.period)}</td><td class="hl">${esc(r.holder)}</td><td class="${r.beneficiary ? 'hl' : 'todo'}">${r.beneficiary ? esc(r.beneficiary) : '要記入<br>（証明書に記載なし）'}</td><td class="hl" style="text-align:center">${esc(r.system)}</td><td class="amt hl">${yen(r.amount)}円</td></tr>`
+      ? `<tr><td class="hl">${esc(r.insurer)}</td><td class="hl">${esc(r.productName)}</td><td class="hl">${esc(r.period)}</td><td class="hl">${esc(r.holder)}</td>${(who === 'pension' ? r.pensionStart : r.beneficiary) ? `<td class="hl">${esc(who === 'pension' ? r.pensionStart : r.beneficiary)}</td>` : '<td class="todo">要記入<br>（証明書に記載なし）</td>'}<td class="hl" style="text-align:center">${esc(r.system)}</td><td class="amt hl">${yen(r.amount)}円</td></tr>`
       : `<tr><td class="empty">　</td><td></td><td></td><td></td><td></td><td></td><td></td></tr>`;
   }
   return h + '</table>';
