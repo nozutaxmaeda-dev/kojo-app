@@ -716,6 +716,7 @@ function renderDocs() {
       body = `<div class="row">${fld(d, 'insurer', '保険会社名', 6)}${fld(d, 'productName', '保険等の種類', 6)}</div>
         <div class="row">${fld(d, 'period', '保険期間', 3)}${fld(d, 'holderName', '契約者氏名', 5)}${fld(d, 'beneficiaryName', '保険金等の受取人氏名', 4)}</div>
         ${hasNonCare ? `<div class="row">${sel(d, 'system', '新・旧の区分', 3, NS)}</div>` : ''}
+        ${rows.some(c => c[0] === 'pension') ? `<div class="row">${fld(d, 'pensionStart', '年金支払開始日（例: 令和21年12月1日）', 6)}</div>` : ''}
         ${rows.map(c => `<div class="row">${amtField(d, c[1] + '（支払った保険料）', usedAmt_(d[c[0]]), c[0] + '.declared', c[0] + '.certified', 6)}</div>`).join('')}`;
     } else if (d.docType === 'earthquake') {
       body = `<div class="row">${fld(d, 'insurer', '保険会社名', 6)}${fld(d, 'productName', '保険等の種類（目的）', 3)}${fld(d, 'quakeTarget', '保険の対象', 3)}</div>
