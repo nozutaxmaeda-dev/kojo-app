@@ -651,7 +651,9 @@ function findDuplicateIds_() {
     if (!(d.policyNo || d.docType === 'sme')) return;
     const smeAmt = d.smeTotal != null ? d.smeTotal : ((d.smePaidToSep || 0) + (d.smeScheduled || 0));
     const dk = [d.docType, d.policyNo, d.docType === 'sme' ? d.smeKind + '|' + smeAmt : '',
-      d.docType === 'earthquake' ? d.quakeCategory : ''].join('|');
+      d.docType === 'earthquake' ? d.quakeCategory : '',
+      // 同じ証券番号でも、金額が違えば別の契約（例：同一証券番号で、一般＋介護医療と、介護医療だけの証明書が別にある場合）
+      ['general', 'care', 'pension'].map(function (k) { return d[k] ? d[k].certified + ':' + d[k].declared : ''; }).join(',') + '|' + (d.system || '') + '|' + (d.quakePremium || '') + '|' + (d.socialAmount || '')].join('|');
     if (seen[dk]) dup[d._id] = true; else seen[dk] = true;
   });
   return dup;
