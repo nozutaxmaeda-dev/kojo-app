@@ -231,7 +231,8 @@ button.cta.again:hover:not(:disabled){background:#97350c}
   <div id="depBox" style="display:none;margin:6px 0 0 24px">
     <div style="font-size:13px;margin-bottom:4px">扶養親族の氏名と生年月日を入力してください。</div>
     <div class="actions" style="gap:6px;margin-bottom:4px"><input class="t" type="text" id="depSei" placeholder="姓（例：山田）" style="flex:1;min-width:0" autocomplete="off"><input class="t" type="text" id="depMei" placeholder="名（例：花子）" style="flex:1;min-width:0" autocomplete="off"></div>
-    <div class="actions" style="gap:4px;align-items:center;font-size:13px"><span>生年月日</span><select class="t" id="depY" style="flex:none;width:auto"></select>年<select class="t" id="depM" style="flex:none;width:auto"></select>月<select class="t" id="depD" style="flex:none;width:auto"></select>日</div>
+    <div class="actions" style="gap:4px;align-items:center;font-size:13px"><span>生年月日</span><select class="t" id="depY" style="flex:none;width:auto"></select>年<select class="t" id="depM" style="flex:none;width:auto"></select>月<select class="t" id="depD" style="flex:none;width:auto"></select>日<b id="depAge" style="margin-left:6px;color:var(--ink)"></b></div>
+    <div style="font-size:13px;margin-top:6px;color:var(--todo);font-weight:bold">※ 扶養親族がいる場合は、申告書に、扶養親族のマイナンバー（個人番号）を必ず記入してください。</div>
   </div>
   <div style="margin-top:8px;padding:6px 10px;background:#eef4fb;border-left:4px solid #3b7dd8;font-size:13px">他者の扶養に入っている場合でも、子育て世帯の保険料控除の特例が適用されます。共働き夫婦の場合、夫婦それぞれが適用できます。</div>
   <div class="actions" style="margin-top:10px"><button class="primary" id="startBtn" disabled>計算を開始</button></div>
@@ -255,19 +256,34 @@ button.cta.again:hover:not(:disabled){background:#97350c}
     <div class="legend"><i></i>黄色の欄＝この金額を書く　<u>斜線の欄</u>＝証明書に載っていないので手書き／本人に確認</div>
     <div id="results"></div>
     <div id="globalWarn"></div>
+    <div id="submitNote" style="margin-top:12px;padding:8px 10px;background:#fdecea;border-left:4px solid #d33;font-size:14px;font-weight:bold">※ 保険料控除証明書は、必ず申告書と一緒に提出してください。</div>
   </div>
 </main>
 
 <script>
 const state = { user: null, filerName: '', files: [], docs: [], under23Flag: false, results: null, nextId: 1, seq: 0 };
+function wareki_(y, m) {
+  y = Number(y); m = Number(m || 12);
+  return (y > 2019 || (y === 2019 && m >= 5)) ? '令和' + (y - 2018 === 1 ? '元' : y - 2018) : '平成' + (y - 1988);
+}
+function age_(y, m, d) {
+  const t = new Date();
+  let a = t.getFullYear() - Number(y);
+  if (t.getMonth() + 1 < Number(m) || (t.getMonth() + 1 === Number(m) && t.getDate() < Number(d))) a--;
+  return a;
+}
 function initDepSelects_() {
   const opt = (v, t) => '<option value="' + v + '">' + t + '</option>';
   const y0 = new Date().getFullYear();
   let ys = opt('', '年'), ms = opt('', '月'), ds = opt('', '日');
-  for (let y = y0; y >= y0 - 23; y--) ys += opt(y, y);
+  for (let y = y0; y >= y0 - 23; y--) ys += opt(y, y === 2019 ? '令和元・平成31（2019）' : wareki_(y) + '（' + y + '）');
   for (let m = 1; m <= 12; m++) ms += opt(m, m);
   for (let d = 1; d <= 31; d++) ds += opt(d, d);
   $('#depY').innerHTML = ys; $('#depM').innerHTML = ms; $('#depD').innerHTML = ds;
+}
+function updateDepAge_() {
+  const y = $('#depY').value, m = $('#depM').value, d = $('#depD').value;
+  $('#depAge').textContent = (y && m && d) ? '現在 ' + age_(y, m, d) + '歳' : '';
 }
 function deps_() {
   if (!state.under23Flag) return [];
@@ -279,7 +295,7 @@ function deps_() {
 }
 function fmtBirth_(b) {
   const p = String(b || '').split('-');
-  return p.length === 3 ? p[0] + '年' + Number(p[1]) + '月' + Number(p[2]) + '日生' : '';
+  return p.length === 3 ? wareki_(p[0], p[1]) + '年' + Number(p[1]) + '月' + Number(p[2]) + '日生' : '';
 }
 function under23Map_() {
   const key = nameKeyClient_(state.filerName);
@@ -872,7 +888,7 @@ function renderConfirmText() {
     (state.calcDone ? '<br>計算したあとに修正や追加をしたときは、もう一度確認して「再計算する」を押してください。' : '');
 }
 $('#verifyChk').addEventListener('change', updateStart);
-$('#depBox').addEventListener('input', () => { markDirty_(); renderConfirmText(); });
+$('#depBox').addEventListener('input', () => { updateDepAge_(); markDirty_(); renderConfirmText(); });
 $('#under23Chk').addEventListener('change', () => {
   state.under23Flag = $('#under23Chk').checked;
   $('#depBox').style.display = state.under23Flag ? '' : 'none';
@@ -932,7 +948,7 @@ function personHTML(p) {
     <div class="sub">☆ 年齢23歳未満の扶養親族</div>
     <div class="cells"><div class="cell ${p.under23 ? 'on' : 'off'} big"><span class="lb">有無</span><span class="vl" style="text-align:left">${p.under23 ? '有（☆欄も記入）' : '無'}</span></div>
       ${cell('生命保険料控除額（㋑＋㋺＋㋩、最高12万）', l.total, {key:1, big:1})}</div>
-    ${p.under23 ? (() => { const dd = deps_()[0]; return '<div class="cells"><div class="cell ' + (dd && dd.name ? 'on' : 'off') + '"><span class="lb">扶養親族の氏名</span><span class="vl" style="text-align:left">' + (dd && dd.name ? esc(dd.name) : '要入力') + '</span></div><div class="cell ' + (dd && dd.birth ? 'on' : 'off') + '"><span class="lb">生年月日</span><span class="vl" style="text-align:left">' + (dd && dd.birth ? fmtBirth_(dd.birth).replace('生', '') : '要入力') + '</span></div></div><div style="font-size:12px;margin:2px 0 6px">※ 申告書の☆欄（年齢23歳未満の扶養親族の氏名・生年月日）に、上の内容を書いてください。</div>'; })() : ''}
+    ${p.under23 ? (() => { const dd = deps_()[0]; return '<div class="cells"><div class="cell ' + (dd && dd.name ? 'on' : 'off') + '"><span class="lb">扶養親族の氏名</span><span class="vl" style="text-align:left">' + (dd && dd.name ? esc(dd.name) : '要入力') + '</span></div><div class="cell ' + (dd && dd.birth ? 'on' : 'off') + '"><span class="lb">生年月日</span><span class="vl" style="text-align:left">' + (dd && dd.birth ? fmtBirth_(dd.birth).replace('生', '') : '要入力') + '</span></div></div><div style="font-size:12px;margin:2px 0 6px">※ 申告書の☆欄（年齢23歳未満の扶養親族の氏名・生年月日）に、上の内容を書いてください。扶養親族のマイナンバー（個人番号）も、必ず記入してください。</div>'; })() : ''}
   </div>`;
 
   let q = `<table class="rows"><tr><th>保険会社等</th><th>種類（目的）</th><th>期間</th><th>契約者</th><th>居住者等の氏名</th><th>区分</th><th>Ⓐ 金額</th></tr>`;
