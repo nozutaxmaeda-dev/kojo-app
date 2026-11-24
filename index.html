@@ -227,6 +227,15 @@ button.cta.again:hover:not(:disabled){background:#97350c}
     <input type="checkbox" id="under23Chk" style="margin-top:3px">
     <span>年齢23歳未満の扶養親族がいる　<b style="color:var(--todo)">→ いる場合は、申告書の☆欄に記入が必要です</b></span>
   </label>
+  <div id="depBox" style="display:none;margin:6px 0 0 24px">
+    <div style="font-size:13px;margin-bottom:4px">扶養親族の氏名と生年月日を入力してください（申告書の☆欄に書きます）。</div>
+    
+    <div class="actions" style="gap:6px;margin-bottom:4px"><input class="t" type="text" id="depName1" placeholder="氏名（例：山田花子）" style="flex:1"><input class="t" type="date" id="depBirth1" style="flex:none;width:150px"></div>
+    <div class="actions" style="gap:6px;margin-bottom:4px"><input class="t" type="text" id="depName2" placeholder="氏名（2人目がいる場合）" style="flex:1"><input class="t" type="date" id="depBirth2" style="flex:none;width:150px"></div>
+    <div class="actions" style="gap:6px;margin-bottom:4px"><input class="t" type="text" id="depName3" placeholder="氏名（3人目がいる場合）" style="flex:1"><input class="t" type="date" id="depBirth3" style="flex:none;width:150px"></div>
+  </div>
+  <div style="margin-top:8px;padding:6px 10px;background:#eef4fb;border-left:4px solid #3b7dd8;font-size:13px">他者の扶養に入っている場合でも、子育て世帯の保険料控除の特例が適用されます。共働き夫婦の場合、夫婦それぞれが適用できます。</div>
+
 
   <div id="skipBox"></div>
   <div id="docsWrap" style="display:none">
@@ -251,6 +260,19 @@ button.cta.again:hover:not(:disabled){background:#97350c}
 
 <script>
 const state = { user: null, filerName: '', files: [], docs: [], under23Flag: false, results: null, nextId: 1, seq: 0 };
+function deps_() {
+  if (!state.under23Flag) return [];
+  const out = [];
+  [1, 2, 3].forEach(n => {
+    const name = ($('#depName' + n).value || '').trim(), birth = $('#depBirth' + n).value || '';
+    if (name || birth) out.push({ name: name, birth: birth });
+  });
+  return out;
+}
+function fmtBirth_(b) {
+  const p = String(b || '').split('-');
+  return p.length === 3 ? p[0] + '年' + Number(p[1]) + '月' + Number(p[2]) + '日生' : '';
+}
 function under23Map_() {
   const key = nameKeyClient_(state.filerName);
   return key ? { [key]: !!state.under23Flag } : {};
@@ -828,12 +850,17 @@ function renderConfirmText() {
   const t = $('#confirmText');
   if (!t) return;
   const dep = state.under23Flag ? 'あり' : 'なし';
-  t.innerHTML = '年齢23歳未満の扶養親族：' + dep + '<br>チェックを入れると、ボタンが押せます。' +
+  const ds = deps_();
+  const depTxt = ds.length ? '（' + ds.map(d => esc(d.name) + ' ' + fmtBirth_(d.birth)).join('、') + '）' : '';
+  const depWarn = state.under23Flag && (!ds.length || ds.some(d => !d.name || !d.birth)) ? '<br><b style="color:var(--todo)">扶養親族の氏名と生年月日が、入力されていません。</b>' : '';
+  t.innerHTML = '年齢23歳未満の扶養親族：' + dep + depTxt + depWarn + '<br>チェックを入れると、ボタンが押せます。' +
     (state.calcDone ? '<br>計算したあとに修正や追加をしたときは、もう一度確認して「再計算する」を押してください。' : '');
 }
 $('#verifyChk').addEventListener('change', updateStart);
+$('#depBox').addEventListener('input', () => { markDirty_(); renderConfirmText(); });
 $('#under23Chk').addEventListener('change', () => {
   state.under23Flag = $('#under23Chk').checked;
+  $('#depBox').style.display = state.under23Flag ? '' : 'none';
   markDirty_();
   renderConfirmText();
 });
@@ -890,6 +917,7 @@ function personHTML(p) {
     <div class="sub">☆ 年齢23歳未満の扶養親族</div>
     <div class="cells"><div class="cell ${p.under23 ? 'on' : 'off'} big"><span class="lb">有無</span><span class="vl" style="text-align:left">${p.under23 ? '有（☆欄も記入）' : '無'}</span></div>
       ${cell('生命保険料控除額（㋑＋㋺＋㋩、最高12万）', l.total, {key:1, big:1})}</div>
+    ${p.under23 && deps_().length ? '<div class="cells">' + deps_().map(d => '<div class="cell on"><span class="lb">氏名・生年月日</span><span class="vl" style="text-align:left">' + esc(d.name) + '　' + fmtBirth_(d.birth) + '</span></div>').join('') + '</div>' : ''}
   </div>`;
 
   let q = `<table class="rows"><tr><th>保険会社等</th><th>種類（目的）</th><th>期間</th><th>契約者</th><th>居住者等の氏名</th><th>区分</th><th>Ⓐ 金額</th></tr>`;
@@ -939,7 +967,7 @@ $('#saveBtn').addEventListener('click', async () => {
   try {
     const files = state.files.filter(f => f.cls === 'ok' && f.payload)
       .map(f => ({ key: f.id, fileName: f.payload.fileName, mimeType: f.payload.mimeType, base64: f.payload.base64 }));
-    await run('saveResults', { docs: state.docs, under23: under23Map_(), files, filerName: state.filerName }, state.user);
+    await run('saveResults', { docs: state.docs, under23: under23Map_(), dependents: deps_(), files, filerName: state.filerName }, state.user);
     busySet_(0.95, '計算結果を表示しています…');
     await recalc(); // 保存が完了してから②の計算結果を表示する
     scrollToSection_('#resultsWrap');
