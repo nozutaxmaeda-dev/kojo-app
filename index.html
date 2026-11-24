@@ -219,22 +219,22 @@ button.cta.again:hover:not(:disabled){background:#97350c}
   <input id="picker" type="file" accept="image/*,application/pdf,.pdf,text/xml,application/xml,.xml" multiple hidden>
 
   <ul id="files"></ul>
-  <div class="actions" style="margin-top:10px;align-items:flex-end">
-    <label class="f" style="flex:none;width:320px;white-space:nowrap"><span>申告者名（姓名スペース無し　例：山田太郎）</span><input class="t" type="text" id="filerName"></label>
-    <button class="primary" id="startBtn" disabled>計算を開始</button>
+  <div style="margin-top:10px">
+    <div style="font-size:13px;margin-bottom:2px;color:var(--ink-soft)">申告者名（姓と名を分けて入力）</div>
+    <div class="actions" style="gap:6px"><input class="t" type="text" id="filerSei" placeholder="姓（例：山田）" style="flex:1;min-width:0" autocomplete="off"><input class="t" type="text" id="filerMei" placeholder="名（例：太郎）" style="flex:1;min-width:0" autocomplete="off"></div>
+    <input type="hidden" id="filerName">
   </div>
   <label class="chk" id="under23Wrap" style="margin-top:10px;align-items:flex-start">
     <input type="checkbox" id="under23Chk" style="margin-top:3px">
-    <span>年齢23歳未満の扶養親族がいる　<b style="color:var(--todo)">→ いる場合は、申告書の☆欄に記入が必要です</b></span>
+    <span>年齢23歳未満の扶養親族がいる</span>
   </label>
   <div id="depBox" style="display:none;margin:6px 0 0 24px">
-    <div style="font-size:13px;margin-bottom:4px">扶養親族の氏名と生年月日を入力してください（申告書の☆欄に書きます）。</div>
-    
-    <div class="actions" style="gap:6px;margin-bottom:4px"><input class="t" type="text" id="depName1" placeholder="氏名（例：山田花子）" style="flex:1"><input class="t" type="date" id="depBirth1" style="flex:none;width:150px"></div>
-    <div class="actions" style="gap:6px;margin-bottom:4px"><input class="t" type="text" id="depName2" placeholder="氏名（2人目がいる場合）" style="flex:1"><input class="t" type="date" id="depBirth2" style="flex:none;width:150px"></div>
-    <div class="actions" style="gap:6px;margin-bottom:4px"><input class="t" type="text" id="depName3" placeholder="氏名（3人目がいる場合）" style="flex:1"><input class="t" type="date" id="depBirth3" style="flex:none;width:150px"></div>
+    <div style="font-size:13px;margin-bottom:4px">扶養親族の氏名と生年月日を入力してください。</div>
+    <div class="actions" style="gap:6px;margin-bottom:4px"><input class="t" type="text" id="depSei" placeholder="姓（例：山田）" style="flex:1;min-width:0" autocomplete="off"><input class="t" type="text" id="depMei" placeholder="名（例：花子）" style="flex:1;min-width:0" autocomplete="off"></div>
+    <div class="actions" style="gap:4px;align-items:center;font-size:13px"><span>生年月日</span><select class="t" id="depY" style="flex:none;width:auto"></select>年<select class="t" id="depM" style="flex:none;width:auto"></select>月<select class="t" id="depD" style="flex:none;width:auto"></select>日</div>
   </div>
   <div style="margin-top:8px;padding:6px 10px;background:#eef4fb;border-left:4px solid #3b7dd8;font-size:13px">他者の扶養に入っている場合でも、子育て世帯の保険料控除の特例が適用されます。共働き夫婦の場合、夫婦それぞれが適用できます。</div>
+  <div class="actions" style="margin-top:10px"><button class="primary" id="startBtn" disabled>計算を開始</button></div>
 
 
   <div id="skipBox"></div>
@@ -260,14 +260,22 @@ button.cta.again:hover:not(:disabled){background:#97350c}
 
 <script>
 const state = { user: null, filerName: '', files: [], docs: [], under23Flag: false, results: null, nextId: 1, seq: 0 };
+function initDepSelects_() {
+  const opt = (v, t) => '<option value="' + v + '">' + t + '</option>';
+  const y0 = new Date().getFullYear();
+  let ys = opt('', '年'), ms = opt('', '月'), ds = opt('', '日');
+  for (let y = y0; y >= y0 - 23; y--) ys += opt(y, y);
+  for (let m = 1; m <= 12; m++) ms += opt(m, m);
+  for (let d = 1; d <= 31; d++) ds += opt(d, d);
+  $('#depY').innerHTML = ys; $('#depM').innerHTML = ms; $('#depD').innerHTML = ds;
+}
 function deps_() {
   if (!state.under23Flag) return [];
-  const out = [];
-  [1, 2, 3].forEach(n => {
-    const name = ($('#depName' + n).value || '').trim(), birth = $('#depBirth' + n).value || '';
-    if (name || birth) out.push({ name: name, birth: birth });
-  });
-  return out;
+  const sei = ($('#depSei').value || '').trim(), mei = ($('#depMei').value || '').trim();
+  const y = $('#depY').value, m = $('#depM').value, d = $('#depD').value;
+  if (!sei && !mei && !y && !m && !d) return [];
+  const pad = n => (String(n).length < 2 ? '0' : '') + n;
+  return [{ name: (sei + ' ' + mei).trim(), birth: (y && m && d) ? y + '-' + pad(m) + '-' + pad(d) : '' }];
 }
 function fmtBirth_(b) {
   const p = String(b || '').split('-');
@@ -581,6 +589,13 @@ function updateStart() {
   $('#saveBtn').disabled = state.busy || !state.docs.length || !($('#verifyChk') && $('#verifyChk').checked);
 }
 $('#filerName').addEventListener('input', () => { updateStart(); markDirty_(); });
+function syncFiler_() {
+  $('#filerName').value = nameKeyClient_($('#filerSei').value) + nameKeyClient_($('#filerMei').value);
+  updateStart(); markDirty_();
+}
+$('#filerSei').addEventListener('input', syncFiler_);
+$('#filerMei').addEventListener('input', syncFiler_);
+initDepSelects_();
 /* ===== 元の写真の確認（番号つき） ===== */
 const fileNo_ = id => state.files.findIndex(f => f.id == id) + 1;
 const canView_ = f => !!(f && f.payload && /^(image\/|application\/pdf)/.test(f.payload.mimeType));
@@ -917,7 +932,7 @@ function personHTML(p) {
     <div class="sub">☆ 年齢23歳未満の扶養親族</div>
     <div class="cells"><div class="cell ${p.under23 ? 'on' : 'off'} big"><span class="lb">有無</span><span class="vl" style="text-align:left">${p.under23 ? '有（☆欄も記入）' : '無'}</span></div>
       ${cell('生命保険料控除額（㋑＋㋺＋㋩、最高12万）', l.total, {key:1, big:1})}</div>
-    ${p.under23 && deps_().length ? '<div class="cells">' + deps_().map(d => '<div class="cell on"><span class="lb">氏名・生年月日</span><span class="vl" style="text-align:left">' + esc(d.name) + '　' + fmtBirth_(d.birth) + '</span></div>').join('') + '</div>' : ''}
+    ${p.under23 ? (() => { const dd = deps_()[0]; return '<div class="cells"><div class="cell ' + (dd && dd.name ? 'on' : 'off') + '"><span class="lb">扶養親族の氏名</span><span class="vl" style="text-align:left">' + (dd && dd.name ? esc(dd.name) : '要入力') + '</span></div><div class="cell ' + (dd && dd.birth ? 'on' : 'off') + '"><span class="lb">生年月日</span><span class="vl" style="text-align:left">' + (dd && dd.birth ? fmtBirth_(dd.birth).replace('生', '') : '要入力') + '</span></div></div><div style="font-size:12px;margin:2px 0 6px">※ 申告書の☆欄（年齢23歳未満の扶養親族の氏名・生年月日）に、上の内容を書いてください。</div>'; })() : ''}
   </div>`;
 
   let q = `<table class="rows"><tr><th>保険会社等</th><th>種類（目的）</th><th>期間</th><th>契約者</th><th>居住者等の氏名</th><th>区分</th><th>Ⓐ 金額</th></tr>`;
