@@ -753,7 +753,7 @@ function renderSkip_() {
   let h = '';
   if (hs.length) h += '<div class="skipitem housing"><b>⚠ 住宅借入金等特別控除の書類があります。このアプリでは計算できないため、計算には含めません。<u>必ず、別に提出してください。</u></b><ul>' +
     hs.map(o => '<li>' + nm(o) + esc(o.x.title || '住宅借入金等の書類') + '</li>').join('') + '</ul></div>';
-  if (sp.length) h += '<div class="skipitem"><b>ℹ 介護保険料・健康保険料などの通知書があります。これらは本来、年末調整の「社会保険料控除」に書く金額です。ただし、この書類は年金から天引き（特別徴収）される保険料のため、公的年金の源泉徴収で、すでに控除されています。年末調整でも控除すると二重控除になるため、計算には含めていません。</b><ul>' +
+  if (sp.length) h += '<div class="skipitem"><b>ℹ 介護保険料・健康保険料などの通知書がありますが、すでに年金から天引き（特別徴収）される保険料のため、公的年金の源泉徴収で、すでに控除されています。年末調整でも控除すると二重控除になるため、計算には含めていません。</b><ul>' +
     sp.map(o => '<li>' + nm(o) + esc(o.x.title || '保険料の通知書') + '</li>').join('') + '</ul></div>';
   if (sn.length) h += '<div class="skipitem"><b>ℹ 介護保険料・健康保険料などの通知書があります。通知書だけでは、実際に支払った金額が分からないため、計算には含めていません。</b><ul>' +
     sn.map(o => '<li>' + nm(o) + esc(o.x.title || '保険料の通知書') + '</li>').join('') + '</ul>年金から天引きされていない（ご自身で納付した）保険料は、社会保険料控除の対象になります。支払った金額が分かる書類（領収書・納付証明書など）を、事務所にご相談ください。</div>';
@@ -841,8 +841,9 @@ function renderDocs() {
     }
     if (d.notes) notes.push(d.notes);
     if (d.docType === 'life' && d.otherName) mark('holderName', '契約者とは別に「' + d.otherName + '」という氏名が記載されています。契約者（申告者）名をご確認の上、上の欄で修正してください。');
-    // かな表記と漢字表記の違い（例：ヤマダタロウ／山田太郎）は、比べられないので、注意を出さない
-    if (state.filerName && d.holderName && nameCmp_(d.holderName) !== nameCmp_(state.filerName) && isKanaName_(d.holderName) === isKanaName_(state.filerName)) {
+    // かな表記と漢字表記が違うとき（例：ヤマダタロウ／山田太郎）は、AIが読みで同じ人か判断した結果（kanaMatch）を使う
+    const scriptDiff = isKanaName_(d.holderName) !== isKanaName_(state.filerName);
+    if (state.filerName && d.holderName && (scriptDiff ? d.kanaMatch === false : nameCmp_(d.holderName) !== nameCmp_(state.filerName))) {
       mark('holderName', '契約者氏名「' + d.holderName + '」が、申告者名「' + state.filerName + '」と異なります。契約者と保険料の負担者（申告者）が異なるケースと想定して計算しています。（契約者欄の修正は不要です）');
     }
     if (d.docType === 'sme') notes = notes.filter(n => !/証券番号|基礎年金番号|番号/.test(n));
