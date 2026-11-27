@@ -507,15 +507,6 @@ function addFiles(list, done) {
   prepChain_ = prepChain_.then(() => { if (done) done(); });
   return added;
 }
-/** 名前の比較用：空白を除き、カタカナをひらがなにそろえる */
-function nameCmp_(s) {
-  return nameKeyClient_(s).split('').map(c => { const n = c.charCodeAt(0); return (n >= 0x30A1 && n <= 0x30F6) ? String.fromCharCode(n - 0x60) : c; }).join('');
-}
-/** ひらがな・カタカナ・長音だけの名前か */
-function isKanaName_(s) {
-  const t = nameCmp_(s);
-  return t.length > 0 && t.split('').every(c => { const n = c.charCodeAt(0); return (n >= 0x3041 && n <= 0x3096) || n === 0x30FC; });
-}
 function nameKeyClient_(s) { return String(s || '').replace(/[\s　]/g, ''); }
 let busyTimer_ = null, busyCur_ = 0;
 function busySet_(ratio, text) {
@@ -841,9 +832,7 @@ function renderDocs() {
     }
     if (d.notes) notes.push(d.notes);
     if (d.docType === 'life' && d.otherName) mark('holderName', '契約者とは別に「' + d.otherName + '」という氏名が記載されています。契約者（申告者）名をご確認の上、上の欄で修正してください。');
-    // かな表記と漢字表記が違うとき（例：ヤマダタロウ／山田太郎）は、AIが読みで同じ人か判断した結果（kanaMatch）を使う
-    const scriptDiff = isKanaName_(d.holderName) !== isKanaName_(state.filerName);
-    if (state.filerName && d.holderName && (scriptDiff ? d.kanaMatch === false : nameCmp_(d.holderName) !== nameCmp_(state.filerName))) {
+    if (state.filerName && d.holderName && nameKeyClient_(d.holderName) !== nameKeyClient_(state.filerName)) {
       mark('holderName', '契約者氏名「' + d.holderName + '」が、申告者名「' + state.filerName + '」と異なります。契約者と保険料の負担者（申告者）が異なるケースと想定して計算しています。（契約者欄の修正は不要です）');
     }
     if (d.docType === 'sme') notes = notes.filter(n => !/証券番号|基礎年金番号|番号/.test(n));
