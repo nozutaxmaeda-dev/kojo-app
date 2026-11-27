@@ -507,6 +507,15 @@ function addFiles(list, done) {
   prepChain_ = prepChain_.then(() => { if (done) done(); });
   return added;
 }
+/** 名前の比較用：空白を除き、カタカナをひらがなにそろえる */
+function nameCmp_(s) {
+  return nameKeyClient_(s).split('').map(c => { const n = c.charCodeAt(0); return (n >= 0x30A1 && n <= 0x30F6) ? String.fromCharCode(n - 0x60) : c; }).join('');
+}
+/** ひらがな・カタカナ・長音だけの名前か */
+function isKanaName_(s) {
+  const t = nameCmp_(s);
+  return t.length > 0 && t.split('').every(c => { const n = c.charCodeAt(0); return (n >= 0x3041 && n <= 0x3096) || n === 0x30FC; });
+}
 function nameKeyClient_(s) { return String(s || '').replace(/[\s　]/g, ''); }
 let busyTimer_ = null, busyCur_ = 0;
 function busySet_(ratio, text) {
@@ -581,7 +590,9 @@ async function startAnalysis() {
           state.excluded.push({ fileKey: item.id, name: payload.fileName, items: ex });
           const hasH = ex.some(x => x.kind === 'housing');
           if (!res.documents.length && !sk.length) {
-            item.status = hasH ? '住宅借入金等の書類です。このアプリでは計算できません。必ず別に提出してください' : '保険料控除の証明書ではないため、計算に含めません';
+            item.status = hasH ? '住宅借入金等の書類です。このアプリでは計算できません。必ず別に提出してください'
+              : (ex.some(x => x.kind === 'socialSpecial') ? '年金から天引きされている保険料の通知書です。年末調整では控除しないため、計算に含めません'
+              : (ex.some(x => x.kind === 'socialNotice') ? '保険料の通知書です。支払った金額が分かる書類が別に必要です。計算に含めません' : '保険料控除の証明書ではないため、計算に含めません'));
             item.cls = 'err'; item.skipped = true;
           } else item.status += '／証明書以外 ' + ex.length + '件は除きました';
         }
@@ -735,13 +746,17 @@ function amtField(d, label, value, path, also, span) {
 /** 今年（令和8年分）以外の証明書として除いたものを、読み取り結果の手前に目立つ形で出す */
 function renderSkip_() {
   const box = $('#skipBox'); if (!box) return;
-  const yr = [], hs = [], ot = [];
+  const yr = [], hs = [], ot = [], sp = [], sn = [];
   (state.skipped || []).forEach(e => e.items.forEach(x => yr.push({ no: fileNo_(e.fileKey), x })));
-  (state.excluded || []).forEach(e => e.items.forEach(x => (x.kind === 'housing' ? hs : ot).push({ no: fileNo_(e.fileKey), x })));
+  (state.excluded || []).forEach(e => e.items.forEach(x => (x.kind === 'housing' ? hs : x.kind === 'socialSpecial' ? sp : x.kind === 'socialNotice' ? sn : ot).push({ no: fileNo_(e.fileKey), x })));
   const nm = o => (o.no ? '写真' + o.no + '：' : '');
   let h = '';
   if (hs.length) h += '<div class="skipitem housing"><b>⚠ 住宅借入金等特別控除の書類があります。このアプリでは計算できないため、計算には含めません。<u>必ず、別に提出してください。</u></b><ul>' +
     hs.map(o => '<li>' + nm(o) + esc(o.x.title || '住宅借入金等の書類') + '</li>').join('') + '</ul></div>';
+  if (sp.length) h += '<div class="skipitem"><b>ℹ 介護保険料・健康保険料などの通知書があります。これらは本来、年末調整の「社会保険料控除」に書く金額です。ただし、この書類は年金から天引き（特別徴収）される保険料のため、公的年金の源泉徴収で、すでに控除されています。年末調整でも控除すると二重控除になるため、計算には含めていません。</b><ul>' +
+    sp.map(o => '<li>' + nm(o) + esc(o.x.title || '保険料の通知書') + '</li>').join('') + '</ul></div>';
+  if (sn.length) h += '<div class="skipitem"><b>ℹ 介護保険料・健康保険料などの通知書があります。通知書だけでは、実際に支払った金額が分からないため、計算には含めていません。</b><ul>' +
+    sn.map(o => '<li>' + nm(o) + esc(o.x.title || '保険料の通知書') + '</li>').join('') + '</ul>年金から天引きされていない（ご自身で納付した）保険料は、社会保険料控除の対象になります。支払った金額が分かる書類（領収書・納付証明書など）を、事務所にご相談ください。</div>';
   if (ot.length) h += '<div class="skipitem"><b>保険料控除の証明書ではない書類を、除きました（計算には含めません）。</b><ul>' +
     ot.map(o => '<li>' + nm(o) + esc(o.x.title || '（表題不明）') + '</li>').join('') + '</ul>※実際は保険料の控除証明書だった場合は、写真を撮り直して、もう一度選んでください。</div>';
   if (yr.length) h += '<div class="skipitem"><b>⚠ 今年（令和8年分）の証明書ではないため、除いたものがあります（計算には含めません）</b><ul>' +
@@ -826,7 +841,8 @@ function renderDocs() {
     }
     if (d.notes) notes.push(d.notes);
     if (d.docType === 'life' && d.otherName) mark('holderName', '契約者とは別に「' + d.otherName + '」という氏名が記載されています。契約者（申告者）名をご確認の上、上の欄で修正してください。');
-    if (state.filerName && d.holderName && nameKeyClient_(d.holderName) !== nameKeyClient_(state.filerName)) {
+    // かな表記と漢字表記の違い（例：ヤマダタロウ／山田太郎）は、比べられないので、注意を出さない
+    if (state.filerName && d.holderName && nameCmp_(d.holderName) !== nameCmp_(state.filerName) && isKanaName_(d.holderName) === isKanaName_(state.filerName)) {
       mark('holderName', '契約者氏名「' + d.holderName + '」が、申告者名「' + state.filerName + '」と異なります。契約者と保険料の負担者（申告者）が異なるケースと想定して計算しています。（契約者欄の修正は不要です）');
     }
     if (d.docType === 'sme') notes = notes.filter(n => !/証券番号|基礎年金番号|番号/.test(n));
